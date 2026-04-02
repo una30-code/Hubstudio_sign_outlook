@@ -10,7 +10,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .idea/
-.vscode/
+# VS Code：仅纳入团队共享的 launch 配置，其余本地文件仍忽略
+.vscode/*
+!.vscode/launch.json
 
 logs/*
 !logs/.gitkeep
