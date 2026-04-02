@@ -65,34 +65,34 @@
 
 建议以 **`hubstudio_env_create_config`**（JSON / YAML / 字典）承载以下字段：
 
-| 字段名                   | 类型   | 必填 | 默认值     | 校验规则 | 映射到 Hubstudio 字段 |
-| ------------------------ | ------ | ---- | ---------- | -------- | --------------------- |
-| `site_name`              | string | 否   | `outlook`  | 非空；用作环境名中的网站标识（见 §8.2） | 不直接映射 |
-| `region`                 | string | 是   | 无         | 非空；IP/代理所属地区标签（如 `美国`） | 不直接映射；用于 §8.2 命名与校验 |
-| `name_sequence_start`    | int    | 否   | `1`        | **仅首次初始化或人工覆盖时使用**。常规运行由系统按 §8.2 A 方案自动维护“下一可用序号”。 | 不直接映射 |
-| `environment_name`       | string | 否   | 见 §8.2    | 若提供：长度 1–60，且须符合 §8.2；若缺省：按 §8.2 自动生成 | `containerName` |
-| `proxy.host`             | string | 是   | 无         | 非空     | `proxyServer`         |
-| `proxy.port`             | int    | 是   | 无         | 1–65535  | `proxyPort`           |
-| `proxy.username`         | string | 是   | 无         | 非空     | `proxyAccount`        |
-| `proxy.password`         | string | 是   | 无         | 非空     | `proxyPassword`       |
-| `fingerprint.ua`         | string | 否   | 见 §4 示例 | 非空     | `advancedBo.ua`       |
-| `fingerprint.ua_version` | string | 否   | `124.0.0.0` | 非空   | `advancedBo.uaVersion` |
+| 字段名                   | 类型   | 必填 | 默认值      | 校验规则                                                                               | 映射到 Hubstudio 字段            |
+| ------------------------ | ------ | ---- | ----------- | -------------------------------------------------------------------------------------- | -------------------------------- |
+| `site_name`              | string | 否   | `outlook`   | 非空；用作环境名中的网站标识（见 §8.2）                                                | 不直接映射                       |
+| `region`                 | string | 是   | 无          | 非空；IP/代理所属地区标签（如 `美国`）                                                 | 不直接映射；用于 §8.2 命名与校验 |
+| `name_sequence_start`    | int    | 否   | `1`         | **仅首次初始化或人工覆盖时使用**。常规运行由系统按 §8.2 A 方案自动维护“下一可用序号”。 | 不直接映射                       |
+| `environment_name`       | string | 否   | 见 §8.2     | 若提供：长度 1–60，且须符合 §8.2；若缺省：按 §8.2 自动生成                             | `containerName`                  |
+| `proxy.host`             | string | 是   | 无          | 非空                                                                                   | `proxyServer`                    |
+| `proxy.port`             | int    | 是   | 无          | 1–65535                                                                                | `proxyPort`                      |
+| `proxy.username`         | string | 是   | 无          | 非空                                                                                   | `proxyAccount`                   |
+| `proxy.password`         | string | 是   | 无          | 非空                                                                                   | `proxyPassword`                  |
+| `fingerprint.ua`         | string | 否   | 见 §4 示例  | 非空                                                                                   | `advancedBo.ua`                  |
+| `fingerprint.ua_version` | string | 否   | `124.0.0.0` | 非空                                                                                   | `advancedBo.uaVersion`           |
 
 **请求体中的固定常量**（与 §8 一致，**不由业务配置覆盖**）：
 
-| 含义     | 值                         | Hubstudio 字段        |
-| -------- | -------------------------- | --------------------- |
-| 代理类型 | 仅 **Socks5**              | `proxyTypeName`       |
-| 平台     | `windows`                  | `type`                |
-| 浏览器   | `chrome`                   | `browser`             |
-| 内核版本 | **124**                    | `coreVersion`         |
+| 含义     | 值                         | Hubstudio 字段         |
+| -------- | -------------------------- | ---------------------- |
+| 代理类型 | 仅 **Socks5**              | `proxyTypeName`        |
+| 平台     | `windows`                  | `type`                 |
+| 浏览器   | `chrome`                   | `browser`              |
+| 内核版本 | **124**                    | `coreVersion`          |
 | 语言     | **英语** `["en", "en-US"]` | `advancedBo.languages` |
-| 动态类型 | `1`（沿用参考实现）        | `asDynamicType`       |
+| 动态类型 | `1`（沿用参考实现）        | `asDynamicType`        |
 
 ### 3.3 代理字符串兼容输入（可选）
 
-| 字段名      | 类型   | 必填 | 规则                  | 说明 |
-| ----------- | ------ | ---- | --------------------- | ---- |
+| 字段名      | 类型   | 必填 | 规则                  | 说明                                                        |
+| ----------- | ------ | ---- | --------------------- | ----------------------------------------------------------- |
 | `proxy_raw` | string | 否   | `host:port:user:pass` | 未提供结构化 `proxy.*` 时拆分为 host/port/username/password |
 
 `proxy_raw` 与 `proxy.*` **二选一**；若同时提供，以 **`proxy.*` 为准**。
@@ -285,10 +285,12 @@
 
 ## 9. 变更记录
 
-| 日期           | 摘要                                                                 |
-| -------------- | -------------------------------------------------------------------- |
-| （用户原始稿） | 见 `design.original.md`                                              |
-| 2026-03-20     | 旧版：以 Phase 1（连接与页面验证）为中心                             |
-| 2026-03-31     | 重写：仅保留 phase-0，新增可落地字段字典、请求体映射、模块与返回结构 |
-| 2026-04-01     | 业务向命名与 §8 固化；§8.2：单条/批量统一「网站名+序号+地区+日期」递增 |
+| 日期           | 摘要                                                                                                      |
+| -------------- | --------------------------------------------------------------------------------------------------------- |
+| （用户原始稿） | 见 `design.original.md`                                                                                   |
+| 2026-03-20     | 旧版：以 Phase 1（连接与页面验证）为中心                                                                  |
+| 2026-03-31     | 重写：仅保留 phase-0，新增可落地字段字典、请求体映射、模块与返回结构                                      |
+| 2026-04-01     | 业务向命名与 §8 固化；§8.2：单条/批量统一「网站名+序号+地区+日期」递增                                    |
 | 2026-04-01     | 采用 A 方案：系统自动维护序号状态文件（`logs/sequence_state.json`），`name_sequence_start` 仅用于覆盖纠偏 |
+
+cdnefnjkenfkwnefnefn
