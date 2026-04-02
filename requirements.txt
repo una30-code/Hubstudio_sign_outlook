@@ -1,0 +1,3 @@
+# Runtime deps; keep in sync with pyproject.toml [project.dependencies]
+playwright>=1.40
+python-dotenv>=1.0.0
