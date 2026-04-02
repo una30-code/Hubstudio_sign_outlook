@@ -293,4 +293,3 @@
 | 2026-04-01     | 业务向命名与 §8 固化；§8.2：单条/批量统一「网站名+序号+地区+日期」递增                                    |
 | 2026-04-01     | 采用 A 方案：系统自动维护序号状态文件（`logs/sequence_state.json`），`name_sequence_start` 仅用于覆盖纠偏 |
 
-cdnefnjkenfkwnefnefn
