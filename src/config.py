@@ -230,3 +230,51 @@ def load_hubstudio_env_create_config(
     )
 
 
+# =============================================================================
+# Backward compatibility (tests /旧接口)
+# =============================================================================
+
+# NOTE:
+# 仓库早期曾有“phase-1 页面自动化”接口（`load_settings` 等）。
+# 当前 phase-0/1/2 重构后主逻辑不再使用这些字段，但现有测试仍引用。
+
+DEFAULT_PAGE_LOAD_TIMEOUT_MS = 30000
+
+
+@dataclass(frozen=True)
+class Settings:
+    hubstudio_cdp_url: str
+    outlook_register_url: str
+    page_load_timeout_ms: int
+    screenshots_dir: Path
+    log_dir: Path
+
+
+def load_settings(*, environ: Mapping[str, str] | None = None) -> Settings:
+    """加载 CDP + Outlook 注册页参数（兼容旧测试）。"""
+
+    if environ is None:
+        load_dotenv(PROJECT_ROOT / ".env")
+        environ = os.environ
+
+    hubstudio_cdp_url = _require(environ, "HUBSTUDIO_CDP_URL")
+    outlook_register_url = _require(environ, "OUTLOOK_REGISTER_URL")
+    page_load_timeout_ms = _int_with_default(
+        environ.get("PAGE_LOAD_TIMEOUT_MS"), DEFAULT_PAGE_LOAD_TIMEOUT_MS
+    )
+
+    root = PROJECT_ROOT
+    screenshots_dir = _resolve_dir(
+        root, environ.get("SCREENSHOTS_DIR", "").strip(), DEFAULT_SCREENSHOTS_DIR
+    )
+    log_dir = _resolve_dir(
+        root, environ.get("LOG_DIR", "").strip(), DEFAULT_LOG_DIR
+    )
+    return Settings(
+        hubstudio_cdp_url=hubstudio_cdp_url,
+        outlook_register_url=outlook_register_url,
+        page_load_timeout_ms=page_load_timeout_ms,
+        screenshots_dir=screenshots_dir,
+        log_dir=log_dir,
+    )
+

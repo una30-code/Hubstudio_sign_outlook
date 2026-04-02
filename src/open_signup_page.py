@@ -1,19 +1,57 @@
-"""T-005：打开 Outlook 注册页（当前为占位实现）。"""
+"""Phase-2：打开 Outlook 注册页。"""
 
+from __future__ import annotations
+
+import logging
+from pathlib import Path
 from typing import Any
 
-from src.step_result import StepResult, step_result
+if __package__ in {None, ""}:
+    from step_result import StepResult, step_result
+else:
+    from .step_result import StepResult, step_result
+
+
+def _try_screenshot(page: Any, screenshots_dir: Path, filename_prefix: str) -> str | None:
+    try:
+        screenshots_dir.mkdir(parents=True, exist_ok=True)
+        # Windows 文件名不建议包含 ":" 等字符
+        path = screenshots_dir / f"{filename_prefix}.png"
+        page.screenshot(path=str(path), full_page=True)
+        return str(path)
+    except Exception:
+        return None
 
 
 def open_signup_page(
-    _page: Any,
-    _url: str,
-    _timeout_ms: int,
+    page: Any,
+    url: str,
+    timeout_ms: int,
+    screenshots_dir: Path,
 ) -> StepResult:
-    """T-003 仅占位。"""
-    return step_result(
-        success=False,
-        step="open_signup_page",
-        message="未实现：等待 T-005 导航与超时",
-        error="NotImplemented",
-    )
+    """导航到注册页；失败时保存截图。"""
+
+    log = logging.getLogger(__name__)
+    step = "open_signup_page"
+    try:
+        log.info("%s: goto %s", step, url)
+        page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+        current_url = getattr(page, "url", url)
+        return step_result(
+            success=True,
+            step=step,
+            message="T-P2-002完成：已导航到 Outlook 注册页",
+            data={"current_url": current_url},
+            error=None,
+            screenshot_path=None,
+        )
+    except Exception as exc:
+        screenshot_path = _try_screenshot(page, screenshots_dir, filename_prefix=step)
+        return step_result(
+            success=False,
+            step=step,
+            message="T-P2-002失败：注册页导航失败或超时",
+            data={},
+            error=f"{type(exc).__name__}: {exc}",
+            screenshot_path=screenshot_path,
+        )
