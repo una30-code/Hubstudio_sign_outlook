@@ -1,63 +1,101 @@
 # 任务列表（Tasks）
 
 > 按优先级执行；完成一项再开下一项。状态：`待办` / `进行中` / `已完成` / `阻塞`。  
-> **当前目标（MVP）**：仅完成 **Hubstudio 环境创建**（对应 `requirements.md` 的 phase-0），不展开页面自动化与注册流程。
+> **当前目标**：**phase-2**（`requirements.md` §1.3）— 连接 Hubstudio（CDP）并打开 Outlook 注册页完成基础 DOM 校验；phase-1 已完成。
 
-## 一、MVP 任务范围（仅环境创建）
+## 〇、阶段对照（避免混淆）
 
-本轮只交付以下能力闭环：
+| `requirements.md` | 含义 |
+|-------------------|------|
+| phase-0 | Hubstudio 环境创建（本仓库已实现主路径） |
+| **phase-1** | **用户信息生成（当前迭代）** |
+| phase-2 | 启动环境、打开 Outlook 注册页、基础 DOM 校验（后续迭代） |
 
-1. 读取环境创建配置（含 `.env` 与 `hubstudio_env_create_config`）
-2. 校验字段与命名规则（`site_name` + 序号 + `region` + 本机日期）
-3. 调用 `POST /api/v1/env/create` 创建 Hubstudio 环境
-4. 返回统一结构化结果（`success/message/data/error/screenshot_path`）
-5. 记录关键日志并支持失败排查
-
-明确不做：
-
-- 不连接浏览器 CDP
-- 不打开 Outlook 页面
-- 不执行页面交互或注册流程
+说明：旧版任务里曾用「Phase 1」指**页面自动化**，与需求文档编号不一致；**以 `requirements.md` 的 phase-0/1/2 为准**。
 
 ---
 
-## 二、模块与文件映射（MVP）
+## 一、phase-0 基线（已完成，维护即可）
 
-| 顺序 | 模块 | 建议源码文件 | 目的 |
-|------|------|--------------|------|
-| 1 | 配置读取 | `src/config.py` | 读取 `.env` 与创建配置，输出标准化参数 |
-| 2 | 字段校验 | `src/validate_hubstudio_env_config.py` | 校验必填字段、类型、范围、命名规则 |
-| 3 | 名称生成 | `src/environment_name.py` | 统一生成 `containerName`（含起始序号规则） |
-| 4 | API 调用 | `src/create_hubstudio_environment.py` | 组装请求体并调用 `/api/v1/env/create` |
-| 5 | 编排入口 | `src/pipeline.py` | 串联 load -> validate -> create，输出统一结果 |
-| 6 | 程序入口 | `src/main.py` | 触发编排、输出日志、设置退出码 |
+已交付能力闭环：
 
-说明：文件名可按现有工程微调，但函数命名保持业务语义（`hubstudio_env_*`）。
+1. 读取环境创建配置（`.env` + `hubstudio_env_create_config`）
+2. 校验字段与命名规则
+3. 调用 `POST /api/v1/env/create`
+4. 统一 `StepResult` 与日志
+
+仍可选：**T-003-4** 批量多环境创建（见 §三）。
+
+phase-0 期间明确不做的事项（phase-1 仍不做）：不连 CDP、不打开 Outlook 页面。
 
 ---
 
-## 三、当前迭代任务（按执行顺序）
+## 二、模块与文件映射
 
-| ID | 任务 | 状态 | 验收标准 |
-|----|------|------|----------|
-| T-001 | 对齐文档基线：`requirements.md` + `design.md` + 本任务清单一致 | 已完成 | 三份文档均以“Hubstudio 环境创建”作为当前目标 |
-| T-002 | 实现配置模型与读取逻辑（`.env` + `hubstudio_env_create_config`） | 待办 | 成功读取 `HUBSTUDIO_API_BASE`、`site_name`、`region`、`name_sequence_start`、代理字段 |
-| T-003 | 实现命名规则与序号策略（A 方案） | 待办 | 单条与批量均按 `{site_name}{seq}_{region}_{YYYY年M月D日}`；`seq` 由状态文件自动递增，支持 `name_sequence_start` 覆盖 |
-| T-004 | 实现字段校验逻辑 | 待办 | 缺失/非法字段可返回可读错误；命名不符合规则时返回失败 |
-| T-005 | 实现 Hubstudio 创建接口调用 | 待办 | 成功调用 `/api/v1/env/create` 并解析 `containerCode` |
-| T-006 | 实现编排与统一返回结构 | 待办 | 最终返回包含 `success/step/message/data/error/screenshot_path` |
-| T-007 | 增加最小可用验证（手工或脚本） | 待办 | 至少覆盖：成功创建、代理格式错误、API 不可达三类结果 |
-| T-008 | 更新测试文档与排障记录（仅 phase-0） | 待办 | `test.md` 与 `debug_log.md` 可支撑 phase-0 验收与定位 |
+### phase-0（已实现）
+
+| 顺序 | 模块     | 源码文件                               | 说明 |
+| ---- | -------- | -------------------------------------- | ---- |
+| 1    | 配置读取 | `src/config.py`                        | `.env` + 创建配置 |
+| 2    | 字段校验 | `src/validate_hubstudio_env_config.py` | 命名与必填 |
+| 3    | 序号与名称 | `src/sequence_state.py` + pipeline   | A 方案序号（非 `environment_name.py`） |
+| 4    | API 调用 | `src/create_hubstudio_environment.py`  | `env/create` |
+| 5    | 编排     | `src/pipeline.py`                      | `run_hubstudio_env_creation` |
+| 6    | 入口     | `src/main.py`                          | phase-0 主入口 |
+
+### phase-1（待实现）
+
+| 顺序 | 模块       | 建议源码文件                    | 目的 |
+| ---- | ---------- | ------------------------------- | ---- |
+| 1    | 身份生成   | `src/outlook_user_profile.py`   | 姓名/生日/账号/密码生成与规则校验 |
+| 2    | 编排（可选） | `src/pipeline.py`             | `run_phase1_user_profile` 或等价 |
+| 3    | 入口扩展   | `src/main.py`                   | 子命令或环境变量选择 phase |
+
+---
+
+## 三、当前迭代任务（phase-0 维护 + phase-1 开发）
+
+### 3.1 phase-0 任务（归档 / 维护）
+
+| ID    | 任务                                                             | 状态             | 验收标准                                                           |
+| ----- | ---------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------ |
+| T-001 | 对齐文档基线：`requirements.md` + `design.md` + 本任务清单一致   | 已完成           | 当时以 phase-0 为迭代目标；现 design 已含 phase-1（§9）            |
+| T-002 | 实现配置模型与读取逻辑（`.env` + `hubstudio_env_create_config`） | 已完成           | `src/config.py`：`load_hubstudio_env_create_config`                |
+| T-003 | 实现命名规则与序号策略（A 方案）                                 | 已完成（单条）   | `src/sequence_state.py` + `pipeline` 接入；**批量 T-003-4 仍待办** |
+| T-004 | 实现字段校验逻辑                                                 | 已完成           | `src/validate_hubstudio_env_config.py`                             |
+| T-005 | 实现 Hubstudio 创建接口调用                                      | 已完成           | `src/create_hubstudio_environment.py`                              |
+| T-006 | 实现编排与统一返回结构                                           | 已完成（主路径） | `src/pipeline.py` + `step_result`；可再收紧文案与边界              |
+| T-007 | 增加最小可用验证（手工或脚本）                                   | 部分完成         | `scripts/test_env_create_api.py`；系统化 pytest 非 phase-1 阻塞项 |
+| T-008 | 更新测试文档与排障记录（仅 phase-0）                             | 已完成           | `test.md`、`debug_log.md` 已对齐 phase-0                           |
+
+### 3.2 phase-1 任务（按推荐顺序）
+
+| ID       | 任务 | 状态   | 验收标准 |
+| -------- | ---- | ------ | -------- |
+| T-P1-001 | 定义数据模型与生成函数签名（`StepResult`、`data` 键） | 已完成 | `src/outlook_user_profile.py` + `run_phase1_user_profile` 输出结构化 `StepResult` |
+| T-P1-002 | 实现姓名、生日（18–55）、账号（规范名 + 5 位随机数）、密码（10 位三类字符） | 已完成 | 随机生成 + 内部校验（单测覆盖生日区间/密码字符类/账号后缀） |
+| T-P1-003 | 接入 `pipeline` / `main`（与 phase-0 并列或分模式运行） | 已完成 | `src/main.py --phase1` + `src/pipeline.py` 提供 phase-1 入口（日志脱敏密码） |
+| T-P1-004 | 更新 `test.md`：增加 phase-1 用例与通过门槛 | 已完成 | 已补充 TC-P1-001～003（phase-1） |
+| T-P1-005 | `.env.example` 补充 phase-1 可选配置（若有，如 `USER_GEN_SEED`） | 已完成 | 已补充 `PHASE=1` / `USER_GEN_SEED`（无敏感默认值） |
+
+### 3.3 phase-2 任务（按推荐顺序）
+
+| ID       | 任务 | 状态 | 验收标准 |
+| -------- | ---- | ------ | -------- |
+| T-P2-001 | 实现 `connect_browser`：CDP 连接并获取 `page` | 进行中 | `python src/main.py --phase2` 时 `step=connect_browser` 返回 `success=True`（或给出可读错误） |
+| T-P2-002 | 实现 `open_signup_page`：导航到注册 URL | 进行中 | 连接成功后 `step=open_signup_page` 返回 `success=True`；失败有 `screenshot_path` |
+| T-P2-003 | 实现 `verify_page`：URL 或注册元素校验 | 进行中 | `step=verify_page` 返回 `success=True`；失败有截图便于微调选择器 |
+| T-P2-004 | `main/pipeline` 增加 phase-2 入口与阶段日志 | 已完成 | `python src/main.py --phase2` 正常执行并输出结构化结果；phase2 日志落在 `logs/phase2.log` |
 
 ### T-003 子任务（A 方案细化）
 
-| 子任务ID | 内容 | 状态 | 通过标准 |
-|----------|------|------|----------|
-| T-003-1 | 增加序号状态存储 `logs/sequence_state.json` 的读写模块 | 待办 | 文件不存在可自动初始化，存在可正确读取 |
-| T-003-2 | 定义序号键维度：`site_name + region + 本机日期` | 待办 | 不同地区/日期互不干扰 |
-| T-003-3 | 单条创建：成功后序号 +1 并持久化 | 待办 | 连续运行两次，序号连续递增 |
-| T-003-4 | 批量创建：按顺序分配序号，按成功条目推进序号 | 待办 | 部分失败时，后续运行不回退已成功条目序号 |
-| T-003-5 | 覆盖参数：`name_sequence_start` 可人工重置起点 | 待办 | 覆盖后立即生效并写回状态文件 |
+| 子任务ID | 内容                                                   | 状态   | 通过标准                                           |
+| -------- | ------------------------------------------------------ | ------ | -------------------------------------------------- |
+| T-003-1  | 增加序号状态存储 `logs/sequence_state.json` 的读写模块 | 已完成 | `sequence_state.py`                                |
+| T-003-2  | 定义序号键维度：`site_name + region + 本机日期`        | 已完成 | `build_sequence_key`                               |
+| T-003-3  | 单条创建：成功后序号 +1 并持久化                       | 已完成 | `get_next_sequence` + API 成功后 `commit_sequence` |
+| T-003-4  | 批量创建：按顺序分配序号，按成功条目推进序号           | 待办   | 需独立入口或列表配置驱动                           |
+| T-003-5  | 覆盖参数：`name_sequence_start` 可人工重置起点         | 已完成 | 配置项 `name_sequence_start` + 状态文件冷启动      |
 
 ---
 
@@ -83,6 +121,5 @@
 
 ## 六、归档（旧版任务说明）
 
-以下内容已从当前迭代移出：Phase 1 页面自动化（`connect_browser`、`open_signup_page`、`verify_page`）。  
-后续仅在你确认开启 phase-2 时再恢复对应任务。
-
+以下内容对应 **`requirements.md` 的 phase-2`**（浏览器连接、打开注册页、DOM 校验），不是 phase-1。  
+当前代码已落地 `connect_browser/open_signup_page/verify_page`；若你发现选择器不稳，可用截图补充信息后继续微调与增强失败用例。
