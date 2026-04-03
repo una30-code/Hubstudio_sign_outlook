@@ -278,3 +278,78 @@ def load_settings(*, environ: Mapping[str, str] | None = None) -> Settings:
         log_dir=log_dir,
     )
 
+
+@dataclass(frozen=True)
+class Phase2Settings:
+    """phase-2：按环境 ID 调 browser/start，或用 CDP URL 直连（调试）。"""
+
+    hubstudio_api_base: str
+    container_code: str | None
+    outlook_register_url: str
+    page_load_timeout_ms: int
+    screenshots_dir: Path
+    log_dir: Path
+    cdp_url_override: str | None
+
+
+def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2Settings:
+    """加载 phase-2 参数。默认先 browser/start；若设置 HUBSTUDIO_CDP_URL 则跳过启动、直接连 CDP。"""
+
+    if environ is None:
+        load_dotenv(PROJECT_ROOT / ".env")
+        environ = os.environ
+
+    root = PROJECT_ROOT
+    log_dir = _resolve_dir(root, environ.get("LOG_DIR", "").strip(), DEFAULT_LOG_DIR)
+    screenshots_dir = _resolve_dir(
+        root, environ.get("SCREENSHOTS_DIR", "").strip(), DEFAULT_SCREENSHOTS_DIR
+    )
+    outlook_register_url = _require(environ, "OUTLOOK_REGISTER_URL")
+    page_load_timeout_ms = _int_with_default(
+        environ.get("PAGE_LOAD_TIMEOUT_MS"), DEFAULT_PAGE_LOAD_TIMEOUT_MS
+    )
+
+    cdp_override = environ.get("HUBSTUDIO_CDP_URL", "").strip() or None
+    api_base = environ.get("HUBSTUDIO_API_BASE", "").strip()
+
+    container = (
+        environ.get("HUBSTUDIO_CONTAINER", "").strip()
+        or environ.get("CONTAINER_CODE", "").strip()
+    )
+    if not container and not cdp_override:
+        from archive_store import read_latest_phase0_container_code
+
+        container = read_latest_phase0_container_code(log_dir) or ""
+
+    if cdp_override:
+        return Phase2Settings(
+            hubstudio_api_base=api_base,
+            container_code=container or None,
+            outlook_register_url=outlook_register_url,
+            page_load_timeout_ms=page_load_timeout_ms,
+            screenshots_dir=screenshots_dir,
+            log_dir=log_dir,
+            cdp_url_override=cdp_override,
+        )
+
+    if not api_base:
+        raise ValueError(
+            "phase-2 requires HUBSTUDIO_API_BASE for POST /api/v1/browser/start, "
+            "or set HUBSTUDIO_CDP_URL to connect without starting via API"
+        )
+    if not container:
+        raise ValueError(
+            "phase-2 requires HUBSTUDIO_CONTAINER or CONTAINER_CODE, "
+            "or a phase-0 archive line with success and containerCode, "
+            "unless HUBSTUDIO_CDP_URL is set"
+        )
+    return Phase2Settings(
+        hubstudio_api_base=api_base,
+        container_code=container,
+        outlook_register_url=outlook_register_url,
+        page_load_timeout_ms=page_load_timeout_ms,
+        screenshots_dir=screenshots_dir,
+        log_dir=log_dir,
+        cdp_url_override=None,
+    )
+

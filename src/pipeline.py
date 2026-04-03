@@ -6,8 +6,9 @@ from typing import Any
 if __package__ in {None, ""}:
     from archive_store import append_archive_record
     from config import load_hubstudio_env_create_config
-    from config import load_settings
+    from config import load_phase2_settings
     from create_hubstudio_environment import create_hubstudio_environment
+    from start_hubstudio_browser import stop_then_start_browser
     from connect_browser import connect_browser
     from open_signup_page import open_signup_page
     from verify_page import verify_page
@@ -23,8 +24,9 @@ if __package__ in {None, ""}:
 else:
     from .archive_store import append_archive_record
     from .config import load_hubstudio_env_create_config
-    from .config import load_settings
+    from .config import load_phase2_settings
     from .create_hubstudio_environment import create_hubstudio_environment
+    from .start_hubstudio_browser import stop_then_start_browser
     from .connect_browser import connect_browser
     from .open_signup_page import open_signup_page
     from .verify_page import verify_page
@@ -159,8 +161,18 @@ def run_phase1_user_profile_generation(seed: int | None = None) -> tuple[StepRes
 
 
 def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
-    """Phase-2：连接 Hubstudio -> 打开 Outlook 注册页 -> 校验页面。"""
+    """
+    该函数负责执行 Phase-2 流程，主要步骤如下：
+    1. 启动指定环境下的浏览器（通过 Hubstudio 环境 ID，或用 cdp_url_override 直连），获取调试端口；
+    2. 通过 Playwright CDP 连接此浏览器，获取页面对象；
+    3. 打开 Outlook 注册页面，并校验页面状态（后续主要逻辑体现在 open_signup_page 和 verify_page）；
+    4. 所有操作采用结构化 StepResult 统一结果格式（成功/失败、报错、截图路径等），便于主流程编排和日志归档。
 
+    返回:
+        Tuple[StepResult, Any | None]
+        - StepResult: 结构化描述结果，包括每一步的 success、step 名、message、附加说明、错误原因等
+        - Any | None: 可能返回的 page 对象，失败时为 None
+    """
     from pathlib import Path
     import re
     from urllib.parse import urlparse
@@ -168,18 +180,47 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
     from playwright.sync_api import sync_playwright
 
     try:
-        settings = load_settings()
-        screenshots_dir: Path = settings.screenshots_dir
-        timeout_ms: int = settings.page_load_timeout_ms
+        p2 = load_phase2_settings()
+        screenshots_dir: Path = p2.screenshots_dir
+        timeout_ms: int = p2.page_load_timeout_ms
 
         # 从 URL 推导一个稳定的“期望模式”，用于 verify_page 的 regex search
-        parsed = urlparse(settings.outlook_register_url)
+        parsed = urlparse(p2.outlook_register_url)
         expected_url_pattern = re.escape(parsed.netloc + parsed.path)
 
         with sync_playwright() as pw:
+            # 判断 p2.cdp_url_override 是否存在，优先用 cdp_url_override 直连
+            if p2.cdp_url_override:
+                cdp_url = p2.cdp_url_override
+            else:
+                # 如无 cdp_url_override，则通过 p2.container_code（即“环境ID”）启动 Hubstudio 容器
+                # 环境ID 由 p2.container_code 传入
+                assert p2.container_code is not None  # 环境ID 必须传入
+                try:
+                    # 官方 start 成功体无可靠的「已在运行」标志；已开时常报业务码（如 -10013）。
+                    # 统一先 best-effort browser/stop，再 start，以拿到新的 debuggingPort。
+                    start_data = stop_then_start_browser(
+                        api_base=p2.hubstudio_api_base,
+                        container_code=p2.container_code,
+                    )
+                except Exception as exc:
+                    return (
+                        step_result(
+                            success=False,
+                            step="hubstudio_browser_start",
+                            message="phase-2失败：按环境 ID 调用 browser/stop→start 未成功",
+                            data={"container_code": p2.container_code},
+                            error=f"{type(exc).__name__}: {exc}",
+                        ),
+                        None,
+                    )
+                # 拿到环境已打开后的调试端口
+                port = start_data.get("debuggingPort")
+                cdp_url = f"http://127.0.0.1:{int(port)}"
+
             connect_res, objs = connect_browser(
                 pw=pw,
-                cdp_url=settings.hubstudio_cdp_url,
+                cdp_url=cdp_url,
             )
             if not connect_res["success"]:
                 return connect_res, None
@@ -189,7 +230,7 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
             try:
                 open_res = open_signup_page(
                     page=page,
-                    url=settings.outlook_register_url,
+                    url=p2.outlook_register_url,
                     timeout_ms=timeout_ms,
                     screenshots_dir=screenshots_dir,
                 )

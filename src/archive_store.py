@@ -38,3 +38,37 @@ def append_archive_record(
         fp.write("\n")
     return str(file_path), archive_ref
 
+
+def read_latest_phase0_container_code(log_dir: Path) -> str | None:
+    """
+    从 phase-0 留档 JSONL 中取最近一条 success 且含环境 ID 的记录。
+    匹配字段：containerCode（与 Hubstudio API 一致）或 container_code（pipeline data 键）。
+    """
+
+    archive_dir = log_dir / "archive"
+    if not archive_dir.is_dir():
+        return None
+    paths = sorted(archive_dir.glob("phase0_env_create_*.jsonl"))
+    last: str | None = None
+    for path in paths:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not obj.get("success"):
+                continue
+            code = obj.get("containerCode")
+            if code is None:
+                code = obj.get("container_code")
+            if code is not None and str(code).strip():
+                last = str(code).strip()
+    return last
+

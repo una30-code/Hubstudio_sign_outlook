@@ -103,7 +103,9 @@ def main() -> int:
         log.info("Phase-1 启动：生成 Outlook 注册用用户信息")
         result, _page = run_phase1_user_profile_generation(seed=seed)
     elif phase == 2:
-        log.info("Phase-2 启动：连接 Hubstudio -> 打开 Outlook 注册页 -> 校验")
+        log.info(
+            "Phase-2 启动：browser/start（环境 ID）或 HUBSTUDIO_CDP_URL -> CDP -> 注册页校验"
+        )
         result, _page = run_phase2_outlook_signup_page()
     else:
         log.info("Phase-0 启动：Hubstudio 环境创建")

@@ -91,7 +91,7 @@ phase-0 期间明确不做的事项（phase-1 仍不做）：不连 CDP、不打
 
 | ID       | 任务                                          | 状态   | 验收标准                                                                                      |
 | -------- | --------------------------------------------- | ------ | --------------------------------------------------------------------------------------------- |
-| T-P2-001 | 实现 `connect_browser`：CDP 连接并获取 `page` | 进行中 | `python src/main.py --phase2` 时 `step=connect_browser` 返回 `success=True`（或给出可读错误） |
+| T-P2-001 | best-effort `browser/stop` + `browser/start`（环境 ID）+ `connect_browser`（`debuggingPort` 或 `HUBSTUDIO_CDP_URL`） | 进行中 | 默认路径：`hubstudio_browser_start`（最终 start 成功）且 `connect_browser` 成功；或仅 CDP 覆盖时直连成功 |
 | T-P2-002 | 实现 `open_signup_page`：导航到注册 URL       | 进行中 | 连接成功后 `step=open_signup_page` 返回 `success=True`；失败有 `screenshot_path`              |
 | T-P2-003 | 实现 `verify_page`：URL 或注册元素校验        | 进行中 | `step=verify_page` 返回 `success=True`；失败有截图便于微调选择器                              |
 | T-P2-004 | `main/pipeline` 增加 phase-2 入口与阶段日志   | 已完成 | `python src/main.py --phase2` 正常执行并输出结构化结果；phase2 日志落在 `logs/phase2.log`     |
