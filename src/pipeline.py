@@ -1,8 +1,10 @@
 """Phase-0 编排占位：Hubstudio 环境创建。"""
 
+from datetime import datetime
 from typing import Any
 
 if __package__ in {None, ""}:
+    from archive_store import append_archive_record
     from config import load_hubstudio_env_create_config
     from config import load_settings
     from create_hubstudio_environment import create_hubstudio_environment
@@ -19,6 +21,7 @@ if __package__ in {None, ""}:
     from validate_hubstudio_env_config import validate_hubstudio_env_create_config
     from outlook_user_profile import run_phase1_user_profile
 else:
+    from .archive_store import append_archive_record
     from .config import load_hubstudio_env_create_config
     from .config import load_settings
     from .create_hubstudio_environment import create_hubstudio_environment
@@ -73,11 +76,22 @@ def run_hubstudio_env_creation() -> tuple[StepResult, Any | None]:
             )
         api_data = create_hubstudio_environment(cfg, env_name)
         commit_sequence(log_dir=cfg.log_dir, key=alloc.key, used_sequence=alloc.sequence)
+        archive_path, archive_ref = append_archive_record(
+            log_dir=cfg.log_dir,
+            phase="phase0_env_create",
+            payload={
+                "containerCode": api_data.get("containerCode"),
+                "environment_name": env_name,
+                "region": cfg.region,
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+                "success": True,
+            },
+        )
         return (
             step_result(
                 success=True,
                 step="hubstudio_env_creation",
-                message="T-005完成：Hubstudio环境创建成功并已提交序号",
+                message="T-005/T-009完成：Hubstudio环境创建成功并已留档",
                 data={
                     "site_name": cfg.site_name,
                     "region": cfg.region,
@@ -86,6 +100,8 @@ def run_hubstudio_env_creation() -> tuple[StepResult, Any | None]:
                     "environment_name": env_name,
                     "state_file": str(cfg.log_dir / STATE_FILE_NAME),
                     "container_code": api_data.get("containerCode"),
+                    "archive_path": archive_path,
+                    "archive_ref": archive_ref,
                 },
                 error=None,
             ),
@@ -107,13 +123,35 @@ def run_phase1_user_profile_generation(seed: int | None = None) -> tuple[StepRes
     """Phase-1：生成 Outlook 注册用用户信息（纯数据生成）。"""
 
     try:
-        return run_phase1_user_profile(seed=seed)
+        result, page = run_phase1_user_profile(seed=seed)
+        if result["success"]:
+            # T-P1-006: 按当前约定，archive 可包含明文 password（日志仍脱敏）。
+            from pathlib import Path
+            import os
+            project_root = Path(__file__).resolve().parent.parent
+            log_dir = project_root / os.getenv("LOG_DIR", "logs")
+            archive_path, archive_ref = append_archive_record(
+                log_dir=log_dir,
+                phase="phase1_user_profile",
+                payload={
+                    "first_name": result["data"].get("first_name"),
+                    "last_name": result["data"].get("last_name"),
+                    "birth_date": result["data"].get("birth_date"),
+                    "account": result["data"].get("account"),
+                    "password": result["data"].get("password"),
+                    "generated_at": datetime.now().isoformat(timespec="seconds"),
+                    "success": True,
+                },
+            )
+            result["data"]["archive_path"] = archive_path
+            result["data"]["archive_ref"] = archive_ref
+        return result, page
     except Exception as exc:
         return (
             step_result(
                 success=False,
                 step="outlook_user_profile",
-                message="T-P1-003失败：生成用户信息失败",
+                message="T-P1-003/T-P1-006失败：生成用户信息或留档失败",
                 error=f"{type(exc).__name__}: {exc}",
             ),
             None,
