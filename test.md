@@ -23,6 +23,7 @@
 | TC-P0-003 | 主流程创建成功        | T-005～T-006   | connector 正常、API 可达                                                | 运行 `python src/main.py` 或调试 `src/main.py`                                                                                                                                                                                                                             | `success=True`；`data` 含 `container_code`、`environment_name`；`logs/phase0.log` 有记录；`logs/sequence_state.json` 在成功后推进 |
 | TC-P0-004 | API 不可达 / 业务失败 | T-005         | 故意错误 `HUBSTUDIO_API_BASE` 或 connector 未启                           | 运行 `src/main.py`                                                                                                                                                                                                                                                      | `success=False`；`error` 非空；进程退出码非 0；**序号不应在失败路径被提交**（见 `sequence_state` 设计）                                         |
 | TC-P0-005 | 独立脚本探测         | T-007         | 与 TC-P0-003 相同网络环境                                                 | `python scripts/test_env_create_api.py`                                                                                                                                                                                                                               | 返回 HTTP 200 且 JSON `code=0`（脚本打印体可见）；用于与主流程对照                                                                       |
+| TC-P0-006 | phase-0 留档可追溯      | T-009         | TC-P0-003 已通过                                                          | 执行主流程后检查 archive 位置或引用（`archive_path`/`archive_ref`）                                                                                                                                                                                                       | 可查询到本次创建记录，至少含 `containerCode/environment_name/created_at/success`                                                   |
 
 
 负例细节可在 `debug_log.md` 留一条可追溯记录。
@@ -32,9 +33,10 @@
 
 | ID        | 名称             | 映射       | 前置条件                  | 步骤摘要                                                                                                                                                                                                                         | 期望结果                                                                                             |
 | --------- | -------------- | -------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| TC-P1-001 | phase-1 基础生成   | T-P1-002 | 可选：设置 `USER_GEN_SEED` | `python src/main.py --phase1`                                                                                                                                                                                                | 进程退出码为 0；`logs/phase1.log` 包含 `success=True step=outlook_user_profile`；日志里 `password` 被脱敏为 `*`** |
+| TC-P1-001 | phase-1 基础生成   | T-P1-002 | 可选：设置 `USER_GEN_SEED` | `python src/main.py --phase1`                                                                                                                                                                                                | 进程退出码为 0；`logs/phase1.log` 包含 `success=True step=outlook_user_profile`；日志里 `password` 被脱敏为 `***` |
 | TC-P1-002 | 规则校验（生日/账号/密码） | T-P1-002 | 可选：seed 固定，便于复现       | `python -c "from src.outlook_user_profile import generate_outlook_user_profile; from datetime import date; p=generate_outlook_user_profile(seed=123, reference_date=date(2026,4,2)); print(p.account); print(p.birth_date)"` | 生日年龄在 18~55（含边界）；账号末尾 5 位数字；密码长度 10 且包含数字/小写/大写                                                  |
 | TC-P1-003 | 单元测试回归         | T-P1-002 | pytest 环境就绪           | `pytest -q tests/test_outlook_user_profile.py`                                                                                                                                                                               | 全部用例通过                                                                                           |
+| TC-P1-004 | phase-1 留档可追溯      | T-P1-006 | TC-P1-001 已通过         | 执行 `python src/main.py --phase1` 后检查 archive 位置或引用                                                                                                                                                                                                                  | 可查询到本次生成记录，含 `first_name/last_name/birth_date/account/generated_at/success` |
 
 
 ## 4. 用例表（phase-2）
@@ -52,6 +54,7 @@
 ## 5. 产物与报告
 
 - **运行日志**：`logs/phase0.log`（phase-0） / `logs/phase1.log`（phase-1） / `logs/phase2.log`（phase-2）
+- **archive 留档目录**：`logs/archive/`（建议 JSONL；按 phase 与日期分文件）
 - **序号状态**：`logs/sequence_state.json`（仅创建成功后会 `commit`）
 - **失败截图**：phase-2（open/verify）失败时建议必有；失败截图目录 `screenshots/`
 - **测试框架产出**：可放在 `test-results/`（如后续加 pytest）
@@ -59,7 +62,9 @@
 ## 6. 通过 / 发布门槛
 
 - **必须**：在目标环境上 **TC-P0-003** 通过（或等价手工签字），且返回结构与 `design.md` 统一返回字段一致。
+- **必须**：在目标环境上 **TC-P0-006** 通过（或等价手工签字）。
 - **必须**：在目标环境上 **TC-P1-001/TC-P1-003** 通过（或等价手工签字）。
+- **必须**：在目标环境上 **TC-P1-004** 通过（或等价手工签字）。
 - **必须**：在目标环境上 **TC-P2-001~TC-P2-004** 通过（或等价手工签字）。
 - **建议**：**TC-P0-004** 至少验证一次；**TC-P0-005** 在排障时优先执行以隔离 connector。
 

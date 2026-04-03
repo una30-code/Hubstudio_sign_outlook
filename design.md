@@ -4,8 +4,7 @@
 
 - **phase-0**：Hubstudio 指纹环境创建（§1～§8）。
 - **phase-1**：Outlook 注册用用户信息生成（§9）。
-
-**phase-2**（启动环境 + 打开注册页 + 基础 DOM 校验）在 `requirements.md` §1.3 中定义，设计细节待 phase-1 验收后再展开。
+- **phase-2**：CDP 连接 + 打开 Outlook 注册页 + 基础 DOM 校验（§10）。
 
 ---
 
@@ -229,6 +228,20 @@
 - 日志写入 `logs/`；敏感字段（代理账号密码）必须脱敏。
 - 失败时必须返回可追溯错误信息，不允许静默失败。
 
+### 7.1 留档（archive）统一规范（phase-0 / phase-1）
+
+为对齐 `requirements.md` 新增需求，统一采用以下 archive 约定：
+
+- **目录**：`logs/archive/`
+- **文件命名建议**：
+  - phase-0：`phase0_env_create_YYYYMMDD.jsonl`
+  - phase-1：`phase1_user_profile_YYYYMMDD.jsonl`
+- **记录格式**：一行一个 JSON（JSONL），便于追加写入与后续检索。
+- **结果回传**：调用结果中建议包含 `archive_path`（文件路径）或 `archive_ref`（记录ID），至少其一。
+- **与日志边界**：
+  - `logs/*.log`：运行轨迹（过程日志）
+  - `logs/archive/*.jsonl`：业务结果留档（可追溯记录）
+
 ---
 
 ## 8. 已确认业务规则
@@ -310,6 +323,22 @@
 - 复用 `src/step_result.py` 的 **`StepResult`**：`step` 建议取值 `outlook_user_profile`。
 - `data` 建议键（可按实现微调，但与 phase-2 对接前需冻结）：`first_name`、`last_name`、`birth_date`（ISO `YYYY-MM-DD`）、`account`、`password`；可选 `display_name`。
 
+### 9.3.2 留档（archive）要求
+
+为对齐 `requirements.md` 新增需求，phase-1 需在“结果输出”之外保留可追溯档案：
+
+- **最小留档字段**：`first_name`、`last_name`、`birth_date`、`account`、`generated_at`、`success`。
+- **落盘位置**：遵循 §7.1，建议写入 `logs/archive/phase1_user_profile_YYYYMMDD.jsonl`。
+- **可追溯标识**：调用结果建议返回 `archive_path` 或 `archive_ref`（至少其一），便于后续 phase-2 对接。
+- **与日志边界**：`logs/*` 是运行日志；archive 是业务结果留存，两者不可混用。
+
+### 9.3.1 冻结接口（本仓库当前实现）
+
+为避免 phase-2 对接时字段漂移，现将 phase-1 产物接口冻结如下：
+
+- **StepResult.step**：`outlook_user_profile`
+- **StepResult.data keys（固定）**：`first_name`、`last_name`、`birth_date`、`account`、`password`
+
 ### 9.4 模块与入口（建议）
 
 | 项       | 建议                                                                                                                              |
@@ -321,12 +350,93 @@
 
 ### 9.5 与 phase-0 / phase-2 的关系
 
-- **phase-0**：独立；phase-1 不依赖 `containerCode`。
+- **phase-0**：独立；phase-1 不依赖 `containerCode`，但可引用 phase-0 的 archive 信息做运行关联。
 - **phase-2**：消费 phase-1 的 `data` + phase-0 的环境标识（启动浏览器后再填表）。
 
 ---
 
-## 10. 变更记录
+## 10. phase-2：Outlook 注册页基础流程（CDP + Playwright）
+
+本节对应 `requirements.md` §1.3，并与 `test.md` 中 **TC-P2-001～TC-P2-005** 对齐。
+
+### 10.1 目标与边界
+
+- **目标**：在**已由 Hubstudio 启动并可 CDP 接入**的浏览器中，打开 Outlook 注册 URL，并在约定超时内完成**页面加载 + 基础 DOM 校验**；全程返回统一 `StepResult`。
+- **边界（当前实现）**：
+  - 本阶段**不**通过 HTTP API（如 `HUBSTUDIO_API_BASE`）替代 CDP 驱动页面。
+  - **不**在本节要求内实现完整注册提交、验证码/人机绕过、多步表单填完。
+  - **不**强制在本仓库内“启动 Hubstudio 内核进程”；前提由运维/本机先保证浏览器与 CDP 端点可用。
+
+### 10.2 CDP 与 HTTP API 区分（易混点）
+
+| 能力           | 典型配置 / 协议                                              | 用途                            |
+| -------------- | ------------------------------------------------------------ | ------------------------------- |
+| Hubstudio HTTP | `HUBSTUDIO_API_BASE`（如 `http://127.0.0.1:6873`）           | phase-0 环境创建等 REST 调用    |
+| 浏览器 CDP     | `HUBSTUDIO_CDP_URL`（`ws://host:port/devtools/browser/...`） | phase-2 Playwright 连已有浏览器 |
+
+phase-2 **只读** `load_settings()` 中与 CDP/页面相关的键（见下表），**不**复用 `6873` 作为 CDP 地址。
+
+### 10.3 运行配置（`.env`，经 `load_settings`）
+
+| 字段名                 | 必填 | 说明                                                                         |
+| ---------------------- | ---- | ---------------------------------------------------------------------------- |
+| `HUBSTUDIO_CDP_URL`    | 是   | WebSocket CDP 端点；端口须在本机监听，GUID 须与当前实例一致。                |
+| `OUTLOOK_REGISTER_URL` | 是   | 注册流程起始页，默认可与需求示例一致。                                       |
+| `PAGE_LOAD_TIMEOUT_MS` | 否   | 导航与部分等待的超时（毫秒）；缺省见 `DEFAULT_PAGE_LOAD_TIMEOUT_MS`。        |
+| `SCREENSHOTS_DIR`      | 否   | 失败截图目录，相对项目根；缺省 `screenshots`。                               |
+| `LOG_DIR`              | 否   | 运行日志根目录；phase-2 阶段日志文件为 `logs/phase2.log`（由 `main` 写入）。 |
+
+### 10.4 执行顺序与模块映射
+
+固定顺序（任一步失败即停止，返回该步 `StepResult`）：
+
+1. **`connect_browser`**（`src/connect_browser.py`）
+   - `playwright.sync_api.sync_playwright` → `chromium.connect_over_cdp(cdp_url)`
+   - 取得 `browser` / `context`（若有）/ `page`（已有页或 `new_page` 兜底）
+2. **`open_signup_page`**（`src/open_signup_page.py`）
+   - `page.goto(url, wait_until="domcontentloaded", timeout=...)`
+3. **`verify_page`**（`src/verify_page.py`）
+   - **URL**：对 `OUTLOOK_REGISTER_URL` 的 host+path 做正则匹配（由编排层传入 `expected_url_pattern`）
+   - **DOM**：在超时预算内依次尝试若干“注册相关”定位（如 email 输入、`role=textbox`、heading、submit 等），**命中任一即视为元素侧通过**
+   - **成功判据（实现策略）**：`url_ok` **或** `element_ok` 为真即 `success=True`（与 `requirements.md` “URL 或元素”语义一致）
+
+**编排入口**：`src/pipeline.py` 中 `run_phase2_outlook_signup_page()`。  
+**程序入口**：`src/main.py`，`python src/main.py --phase2` 或环境变量 `PHASE=2`。
+
+### 10.5 统一返回与 `step` 取值
+
+| 阶段成功时的 `step`（典型） | 含义                                                                                                       |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `connect_browser`           | 仅当后续步骤未执行且本步为最终返回时，表示失败停在连接。                                                   |
+| `open_signup_page`          | 导航失败或超时。                                                                                           |
+| `verify_page`               | 端到端最后一跳；成功时 `success=True`，`data` 含 `current_url`、`url_ok`、`element_ok`、`element_hit` 等。 |
+
+失败时：`error` 为非空字符串；`open_signup_page` / `verify_page` 在可能时写入 `screenshot_path`（`screenshots/` 下 PNG）。**注意**：`connect_browser` 失败时尚无 `page`，通常**无法**截图，以日志与 `error` 为准。
+
+### 10.6 可观测性与排障
+
+- **日志**：`logs/phase2.log`（关键步骤、流水线结果、错误栈摘要由 Playwright 抛出）。
+- **截图**：`screenshots/open_signup_page.png`、`screenshots/verify_page.png`（按失败点覆盖写入）。
+- **已知环境问题**：若出现 `ECONNREFUSED` 指向 CDP 端口，表示该端口未监听或 URL 错误；见 `debug_log.md` 中 phase-2 CDP 条目。
+
+### 10.7 与 `test.md` 用例对应（验收口径）
+
+| `test.md` 用例 | 设计要点                                                                             |
+| -------------- | ------------------------------------------------------------------------------------ |
+| TC-P2-001      | `step=connect_browser` 且 `success=True`。                                           |
+| TC-P2-002      | `step=open_signup_page` 且 `data.current_url` 有值。                                 |
+| TC-P2-003      | `step=verify_page` 且 `success=True`。                                               |
+| TC-P2-004      | 单次 `--phase2` 跑通全流程，最终 `verify_page` 成功。                                |
+| TC-P2-005      | 故意错误 CDP 或 URL 时 `success=False`；open/verify 失败时尽量带 `screenshot_path`。 |
+
+### 10.8 后续扩展（非当前必做）
+
+- 与 phase-0/1 **archive** 关联：可在 phase-2 成功后追加一条 `logs/archive/phase2_signup_smoke_YYYYMMDD.jsonl`（字段与任务表另立 T-P2-\* 后再实现）。
+- 选择器随微软页面改版迭代时，应**单次最小变更** `verify_page.py`，并更新本节“DOM 策略”一句说明。
+
+---
+
+## 11. 变更记录
 
 | 日期           | 摘要                                                                                                      |
 | -------------- | --------------------------------------------------------------------------------------------------------- |
@@ -335,4 +445,5 @@
 | 2026-03-31     | 重写：仅保留 phase-0，新增可落地字段字典、请求体映射、模块与返回结构                                      |
 | 2026-04-01     | 业务向命名与 §8 固化；§8.2：单条/批量统一「网站名+序号+地区+日期」递增                                    |
 | 2026-04-01     | 采用 A 方案：系统自动维护序号状态文件（`logs/sequence_state.json`），`name_sequence_start` 仅用于覆盖纠偏 |
-| 2026-04-02     | 新增 §9：phase-1 用户信息生成设计；原「变更记录」顺延为 §10                                               |
+| 2026-04-02     | 新增 §9：phase-1 用户信息生成设计                                                                         |
+| 2026-04-02     | 新增 §10：phase-2 CDP + 注册页设计；变更记录顺延为 §11                                                    |
