@@ -238,7 +238,9 @@ def load_hubstudio_env_create_config(
 # 仓库早期曾有“phase-1 页面自动化”接口（`load_settings` 等）。
 # 当前 phase-0/1/2 重构后主逻辑不再使用这些字段，但现有测试仍引用。
 
-DEFAULT_PAGE_LOAD_TIMEOUT_MS = 30000
+DEFAULT_PAGE_LOAD_TIMEOUT_MS = 90000
+# 页面已打开后：单步填表/点击等待（毫秒），避免沿用整页导航超时导致「填邮箱前空等过久」
+DEFAULT_PHASE2_FORM_TIMEOUT_MS = 12_000
 
 
 @dataclass(frozen=True)
@@ -286,7 +288,9 @@ class Phase2Settings:
     hubstudio_api_base: str
     container_code: str | None
     outlook_register_url: str
+    outlook_email_domain: str
     page_load_timeout_ms: int
+    phase2_form_timeout_ms: int
     screenshots_dir: Path
     log_dir: Path
     cdp_url_override: str | None
@@ -305,8 +309,13 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
         root, environ.get("SCREENSHOTS_DIR", "").strip(), DEFAULT_SCREENSHOTS_DIR
     )
     outlook_register_url = _require(environ, "OUTLOOK_REGISTER_URL")
+    outlook_email_domain = (environ.get("OUTLOOK_EMAIL_DOMAIN", "") or "").strip() or "outlook.com"
+    outlook_email_domain = outlook_email_domain.lstrip("@")
     page_load_timeout_ms = _int_with_default(
         environ.get("PAGE_LOAD_TIMEOUT_MS"), DEFAULT_PAGE_LOAD_TIMEOUT_MS
+    )
+    phase2_form_timeout_ms = _int_with_default(
+        environ.get("PHASE2_FORM_TIMEOUT_MS"), DEFAULT_PHASE2_FORM_TIMEOUT_MS
     )
 
     cdp_override = environ.get("HUBSTUDIO_CDP_URL", "").strip() or None
@@ -326,7 +335,9 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
             hubstudio_api_base=api_base,
             container_code=container or None,
             outlook_register_url=outlook_register_url,
+            outlook_email_domain=outlook_email_domain,
             page_load_timeout_ms=page_load_timeout_ms,
+            phase2_form_timeout_ms=phase2_form_timeout_ms,
             screenshots_dir=screenshots_dir,
             log_dir=log_dir,
             cdp_url_override=cdp_override,
@@ -347,7 +358,9 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
         hubstudio_api_base=api_base,
         container_code=container,
         outlook_register_url=outlook_register_url,
+        outlook_email_domain=outlook_email_domain,
         page_load_timeout_ms=page_load_timeout_ms,
+        phase2_form_timeout_ms=phase2_form_timeout_ms,
         screenshots_dir=screenshots_dir,
         log_dir=log_dir,
         cdp_url_override=None,

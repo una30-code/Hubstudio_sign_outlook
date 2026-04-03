@@ -13,6 +13,11 @@ description:
 alwaysApply: true
 ---
 
+---
+description: 
+alwaysApply: true
+---
+
 # Cursor 全局规则（工程级）
 
 ## 一、角色定义

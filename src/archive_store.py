@@ -72,3 +72,45 @@ def read_latest_phase0_container_code(log_dir: Path) -> str | None:
                 last = str(code).strip()
     return last
 
+
+def read_latest_phase1_user_profile(log_dir: Path) -> dict[str, str] | None:
+    """
+    从 phase-1 留档 JSONL 中取最近一条 success 且含 account/password 的记录。
+    用于 phase-2 按需求录入注册页（密码仅内存使用，勿写入日志）。
+    """
+
+    archive_dir = log_dir / "archive"
+    if not archive_dir.is_dir():
+        return None
+    paths = sorted(archive_dir.glob("phase1_user_profile_*.jsonl"))
+    last: dict[str, str] | None = None
+    for path in paths:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not obj.get("success"):
+                continue
+            account = obj.get("account")
+            password = obj.get("password")
+            if account is None or not str(account).strip():
+                continue
+            if password is None or not str(password):
+                continue
+            last = {
+                "first_name": str(obj.get("first_name") or ""),
+                "last_name": str(obj.get("last_name") or ""),
+                "birth_date": str(obj.get("birth_date") or ""),
+                "account": str(account).strip(),
+                "password": str(password),
+            }
+    return last
+

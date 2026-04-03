@@ -91,10 +91,12 @@ phase-0 期间明确不做的事项（phase-1 仍不做）：不连 CDP、不打
 
 | ID       | 任务                                          | 状态   | 验收标准                                                                                      |
 | -------- | --------------------------------------------- | ------ | --------------------------------------------------------------------------------------------- |
-| T-P2-001 | best-effort `browser/stop` + `browser/start`（环境 ID）+ `connect_browser`（`debuggingPort` 或 `HUBSTUDIO_CDP_URL`） | 进行中 | 默认路径：`hubstudio_browser_start`（最终 start 成功）且 `connect_browser` 成功；或仅 CDP 覆盖时直连成功 |
-| T-P2-002 | 实现 `open_signup_page`：导航到注册 URL       | 进行中 | 连接成功后 `step=open_signup_page` 返回 `success=True`；失败有 `screenshot_path`              |
-| T-P2-003 | 实现 `verify_page`：URL 或注册元素校验        | 进行中 | `step=verify_page` 返回 `success=True`；失败有截图便于微调选择器                              |
+| T-P2-001 | best-effort `browser/stop` + `browser/start`（环境 ID）+ `connect_browser`（`debuggingPort` 或 `HUBSTUDIO_CDP_URL`） | 已完成 | 默认路径：`hubstudio_browser_start`（最终 start 成功）且 `connect_browser` 成功；或仅 CDP 覆盖时直连成功 |
+| T-P2-002 | 实现 `open_signup_page`：导航到注册 URL       | 已完成 | 连接成功后 `step=open_signup_page` 返回 `success=True`；失败有 `screenshot_path`              |
+| T-P2-003 | 实现 `verify_page`：URL 或注册元素校验        | 已完成 | `step=verify_page` 返回 `success=True`；失败有截图便于微调选择器                              |
 | T-P2-004 | `main/pipeline` 增加 phase-2 入口与阶段日志   | 已完成 | `python src/main.py --phase2` 正常执行并输出结构化结果；phase2 日志落在 `logs/phase2.log`     |
+| T-P2-006 | `apply_signup_profile` 成功后写入 `logs/archive/phase2_signup_smoke_*.jsonl` | 已完成 | 返回 `data.archive_path` / `archive_ref`；字段含 `container_code`、校验摘要、`steps_completed`、`email_used`、无密码 |
+| T-P2-007 | phase-2 读取 phase-1 留档并调用 `apply_outlook_signup_profile`（符合 requirements §1.3 / §4） | 已完成 | 无留档时 `step=phase2_user_profile`；录入成功时最终 `step=apply_signup_profile`              |
 
 ### T-003 子任务（A 方案细化）
 

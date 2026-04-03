@@ -65,7 +65,8 @@ def verify_page(
 
         element_ok = False
         element_hit = None
-        element_budget = max(1500, min(timeout_ms, 8000))
+        # 首屏往往已随 goto(load) 就绪：单次候选元素不必等满导航超时，避免 open→填邮箱前空等过久
+        element_budget = min(6_000, max(2_500, timeout_ms // 15))
         for name, loc in candidate_locators:
             if _try_locator_visible(page, loc, timeout_ms=element_budget):
                 element_ok = True

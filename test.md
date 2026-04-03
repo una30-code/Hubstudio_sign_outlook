@@ -44,10 +44,10 @@
 
 | ID        | 名称             | 映射                               | 前置条件                                                  | 步骤摘要                          | 期望结果                                                    |
 | --------- | -------------- | -------------------------------- | ----------------------------------------------------- | ----------------------------- | ------------------------------------------------------- |
-| TC-P2-001 | 开环境 + CDP 就绪   | `hubstudio_browser_start` / `connect_browser` | 默认：`HUBSTUDIO_API_BASE` + `HUBSTUDIO_CONTAINER`（或留档中有 containerCode）；或仅设 `HUBSTUDIO_CDP_URL` 跳过 stop/start | `python src/main.py --phase2` | 默认路径：best-effort `browser/stop` 后 `browser/start` 成功；`step=connect_browser success=True` |
+| TC-P2-001 | 开环境 + CDP 就绪   | `hubstudio_browser_start` / `connect_browser` | 同上；**且**存在 phase-1 成功留档（或预期在后续步骤失败） | `python src/main.py --phase2` | 默认路径：`browser/stop`→`start` 成功；`connect_browser success=True` |
 | TC-P2-002 | 打开 Outlook 注册页 | `open_signup_page`               | TC-P2-001 通过；`OUTLOOK_REGISTER_URL` 可达                | 同上                            | `step=open_signup_page success=True` 且返回 `current_url`  |
 | TC-P2-003 | DOM 校验通过       | `verify_page`                    | 页面加载完成                                                | 同上                            | `step=verify_page success=True`（URL 匹配或注册相关元素命中任一）      |
-| TC-P2-004 | 端到端成功          | `pipeline`                       | TC-P2-001~003 可全部满足                                   | 同上                            | 总体返回 `success=True`                                     |
+| TC-P2-004 | 端到端成功          | `pipeline`                       | 已运行 **phase-1** 留档；TC-P2-001~003 可满足              | 同上                            | `success=True`；最终 `step=apply_signup_profile`；`data` 含 `steps_completed`、`email_used`、`archive_path` / `archive_ref` |
 | TC-P2-005 | 失败截图可追溯        | `open_signup_page / verify_page` | 故意错误环境 ID、`HUBSTUDIO_CDP_URL` 或 `OUTLOOK_REGISTER_URL` | 同上                            | `success=False`；`hubstudio_browser_start` / `connect` 失败无页截图；open/verify 失败尽量有 `screenshot_path` |
 
 

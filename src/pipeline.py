@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 if __package__ in {None, ""}:
-    from archive_store import append_archive_record
+    from archive_store import append_archive_record, read_latest_phase1_user_profile
     from config import load_hubstudio_env_create_config
     from config import load_phase2_settings
     from create_hubstudio_environment import create_hubstudio_environment
@@ -12,6 +12,7 @@ if __package__ in {None, ""}:
     from connect_browser import connect_browser
     from open_signup_page import open_signup_page
     from verify_page import verify_page
+    from apply_signup_profile import apply_outlook_signup_profile
     from sequence_state import (
         STATE_FILE_NAME,
         build_environment_name,
@@ -22,7 +23,7 @@ if __package__ in {None, ""}:
     from validate_hubstudio_env_config import validate_hubstudio_env_create_config
     from outlook_user_profile import run_phase1_user_profile
 else:
-    from .archive_store import append_archive_record
+    from .archive_store import append_archive_record, read_latest_phase1_user_profile
     from .config import load_hubstudio_env_create_config
     from .config import load_phase2_settings
     from .create_hubstudio_environment import create_hubstudio_environment
@@ -30,6 +31,7 @@ else:
     from .connect_browser import connect_browser
     from .open_signup_page import open_signup_page
     from .verify_page import verify_page
+    from .apply_signup_profile import apply_outlook_signup_profile
     from .sequence_state import (
         STATE_FILE_NAME,
         build_environment_name,
@@ -165,8 +167,9 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
     该函数负责执行 Phase-2 流程，主要步骤如下：
     1. 启动指定环境下的浏览器（通过 Hubstudio 环境 ID，或用 cdp_url_override 直连），获取调试端口；
     2. 通过 Playwright CDP 连接此浏览器，获取页面对象；
-    3. 打开 Outlook 注册页面，并校验页面状态（后续主要逻辑体现在 open_signup_page 和 verify_page）；
-    4. 所有操作采用结构化 StepResult 统一结果格式（成功/失败、报错、截图路径等），便于主流程编排和日志归档。
+    3. 打开 Outlook 注册页面并校验页面（open_signup_page、verify_page）；
+    4. 读取 phase-1 留档，将用户信息填入注册页（apply_outlook_signup_profile，不提交最终开户）；
+    5. 成功时写入 phase-2 留档；全程使用结构化 StepResult。
 
     返回:
         Tuple[StepResult, Any | None]
@@ -227,6 +230,9 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
 
             browser = objs["browser"]
             page = objs["page"]
+            # CDP 附着页仍可能沿用 Playwright 默认 30s，与 PAGE_LOAD_TIMEOUT_MS 对齐
+            page.set_default_navigation_timeout(timeout_ms)
+            page.set_default_timeout(timeout_ms)
             try:
                 open_res = open_signup_page(
                     page=page,
@@ -243,7 +249,62 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
                     timeout_ms=timeout_ms,
                     screenshots_dir=screenshots_dir,
                 )
-                return verify_res, None
+                if not verify_res["success"]:
+                    return verify_res, None
+
+                vdata = verify_res["data"]
+                profile = read_latest_phase1_user_profile(p2.log_dir)
+                if not profile:
+                    return (
+                        step_result(
+                            success=False,
+                            step="phase2_user_profile",
+                            message="phase-2失败：缺少 phase-1 成功留档（请先运行 phase-1 或检查 logs/archive）",
+                            data={"hint": "python src/main.py --phase1"},
+                            error="Phase1ArchiveMissing",
+                        ),
+                        None,
+                    )
+
+                apply_res = apply_outlook_signup_profile(
+                    page=page,
+                    profile=profile,
+                    email_domain=p2.outlook_email_domain,
+                    form_step_timeout_ms=p2.phase2_form_timeout_ms,
+                    screenshots_dir=screenshots_dir,
+                )
+                if not apply_res["success"]:
+                    return apply_res, None
+
+                adata = apply_res["data"]
+                # phase-2 冒烟成功留档（与 design §10.8 一致；不写密码）
+                archive_path, archive_ref = append_archive_record(
+                    log_dir=p2.log_dir,
+                    phase="phase2_signup_smoke",
+                    payload={
+                        "success": True,
+                        "container_code": p2.container_code,
+                        "used_cdp_url_override": p2.cdp_url_override is not None,
+                        "current_url": vdata.get("current_url"),
+                        "url_ok": vdata.get("url_ok"),
+                        "element_ok": vdata.get("element_ok"),
+                        "element_hit": vdata.get("element_hit"),
+                        "steps_completed": adata.get("steps_completed"),
+                        "email_used": adata.get("email_used"),
+                        "verified_at": datetime.now().isoformat(timespec="seconds"),
+                    },
+                )
+                out = dict(apply_res)
+                out["data"] = {
+                    **vdata,
+                    **adata,
+                    "archive_path": archive_path,
+                    "archive_ref": archive_ref,
+                }
+                out["message"] = (
+                    apply_res["message"] + "；页面校验已通过；已写入 phase-2 留档"
+                )
+                return out, None
             finally:
                 try:
                     browser.close()

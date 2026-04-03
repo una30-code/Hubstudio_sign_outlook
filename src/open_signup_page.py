@@ -34,8 +34,9 @@ def open_signup_page(
     log = logging.getLogger(__name__)
     step = "open_signup_page"
     try:
-        log.info("%s: goto %s", step, url)
-        page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+        log.info("%s: goto %s (wait_until=load, timeout_ms=%s)", step, url, timeout_ms)
+        # load 晚于 domcontentloaded，适合代理/指纹环境冷启动后页面资源仍在拉取的情况
+        page.goto(url, timeout=timeout_ms, wait_until="load")
         current_url = getattr(page, "url", url)
         return step_result(
             success=True,

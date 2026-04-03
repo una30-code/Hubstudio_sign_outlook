@@ -104,7 +104,7 @@ def main() -> int:
         result, _page = run_phase1_user_profile_generation(seed=seed)
     elif phase == 2:
         log.info(
-            "Phase-2 启动：browser/start（环境 ID）或 HUBSTUDIO_CDP_URL -> CDP -> 注册页校验"
+            "Phase-2 启动：开环境/CDP -> 注册页校验 -> 读取 phase-1 留档并录入（不提交最终注册）"
         )
         result, _page = run_phase2_outlook_signup_page()
     else:
