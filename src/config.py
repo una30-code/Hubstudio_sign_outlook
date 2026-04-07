@@ -69,6 +69,40 @@ def _int_with_default(raw: Any, default: int) -> int:
     return int(text)
 
 
+def _chrome_password_prompt_mode(raw: str | None) -> str:
+    """
+    将 PHASE2_CHROME_PASSWORD_PROMPT 配置解析为内置的处理模式字符串。
+
+    示例输入与行为：
+    - raw 为 None 或空字符串，返回 "skip"（暂不处理浏览器密码条）
+    - raw 为 "save"、"update"、"1"、"yes"、"true"（不区分大小写），返回 "save"
+    - raw 为 "dismiss"、"no"、"none"、"0"、"false"，返回 "dismiss"
+    - raw 为 "skip"、"off"，返回 "skip"
+    - 其他未识别值一律默认返回 "skip"
+
+    该模式决定自动化时对于 Chrome 的密码保存弹窗如何响应：
+        - "save"    ：尝试点击“保存/更新密码”
+        - "dismiss" ：尝试关闭/跳过弹窗，不保存密码
+        - "skip"    ：流程不处理此弹窗
+
+    参数:
+        raw: 配置项字符串（一般自 .env 或用户输入）
+
+    返回:
+        str: 标准模式（"save" | "dismiss" | "skip"）
+    """
+    if raw is None or not str(raw).strip():
+        return "skip"
+    v = str(raw).strip().lower()
+    if v in {"save", "update", "1", "yes", "true"}:
+        return "save"
+    if v in {"dismiss", "no", "none", "0", "false"}:
+        return "dismiss"
+    if v in {"skip", "off"}:
+        return "skip"
+    return "skip"
+
+
 def _get_nested(data: Mapping[str, Any], *keys: str) -> Any:
     cur: Any = data
     for key in keys:
@@ -238,9 +272,11 @@ def load_hubstudio_env_create_config(
 # 仓库早期曾有“phase-1 页面自动化”接口（`load_settings` 等）。
 # 当前 phase-0/1/2 重构后主逻辑不再使用这些字段，但现有测试仍引用。
 
-DEFAULT_PAGE_LOAD_TIMEOUT_MS = 90000
+DEFAULT_PAGE_LOAD_TIMEOUT_MS = 100_000
 # 页面已打开后：单步填表/点击等待（毫秒），避免沿用整页导航超时导致「填邮箱前空等过久」
-DEFAULT_PHASE2_FORM_TIMEOUT_MS = 12_000
+DEFAULT_PHASE2_FORM_TIMEOUT_MS = 15_000
+# 每一步主操作后的间隔（毫秒），降低操作过快带来的不稳定；0 表示不额外等待
+DEFAULT_PHASE2_ACTION_DELAY_MS = 1_000
 
 
 @dataclass(frozen=True)
@@ -291,6 +327,8 @@ class Phase2Settings:
     outlook_email_domain: str
     page_load_timeout_ms: int
     phase2_form_timeout_ms: int
+    phase2_action_delay_ms: int
+    chrome_password_prompt: str
     screenshots_dir: Path
     log_dir: Path
     cdp_url_override: str | None
@@ -317,6 +355,15 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
     phase2_form_timeout_ms = _int_with_default(
         environ.get("PHASE2_FORM_TIMEOUT_MS"), DEFAULT_PHASE2_FORM_TIMEOUT_MS
     )
+    phase2_action_delay_ms = max(
+        0,
+        _int_with_default(
+            environ.get("PHASE2_ACTION_DELAY_MS"), DEFAULT_PHASE2_ACTION_DELAY_MS
+        ),
+    )
+    chrome_password_prompt = _chrome_password_prompt_mode(
+        environ.get("PHASE2_CHROME_PASSWORD_PROMPT")
+    )
 
     cdp_override = environ.get("HUBSTUDIO_CDP_URL", "").strip() or None
     api_base = environ.get("HUBSTUDIO_API_BASE", "").strip()
@@ -338,6 +385,8 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
             outlook_email_domain=outlook_email_domain,
             page_load_timeout_ms=page_load_timeout_ms,
             phase2_form_timeout_ms=phase2_form_timeout_ms,
+            phase2_action_delay_ms=phase2_action_delay_ms,
+            chrome_password_prompt=chrome_password_prompt,
             screenshots_dir=screenshots_dir,
             log_dir=log_dir,
             cdp_url_override=cdp_override,
@@ -361,6 +410,8 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
         outlook_email_domain=outlook_email_domain,
         page_load_timeout_ms=page_load_timeout_ms,
         phase2_form_timeout_ms=phase2_form_timeout_ms,
+        phase2_action_delay_ms=phase2_action_delay_ms,
+        chrome_password_prompt=chrome_password_prompt,
         screenshots_dir=screenshots_dir,
         log_dir=log_dir,
         cdp_url_override=None,

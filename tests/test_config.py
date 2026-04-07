@@ -4,6 +4,9 @@ import pytest
 
 from src.config import (
     DEFAULT_PAGE_LOAD_TIMEOUT_MS,
+    DEFAULT_PHASE2_ACTION_DELAY_MS,
+    DEFAULT_PHASE2_FORM_TIMEOUT_MS,
+    load_phase2_settings,
     load_settings,
 )
 
@@ -38,3 +41,31 @@ def test_load_settings_custom_timeout_and_paths() -> None:
     assert s.page_load_timeout_ms == 12_000
     assert s.screenshots_dir.name == "custom_shots"
     assert s.log_dir.name == "custom_logs"
+
+
+def test_load_phase2_settings_defaults_and_overrides() -> None:
+    base = {
+        "HUBSTUDIO_API_BASE": "http://127.0.0.1:1",
+        "HUBSTUDIO_CONTAINER": "c1",
+        "OUTLOOK_REGISTER_URL": "https://signup.example/",
+    }
+    s = load_phase2_settings(environ=base)
+    assert s.page_load_timeout_ms == DEFAULT_PAGE_LOAD_TIMEOUT_MS
+    assert s.phase2_form_timeout_ms == DEFAULT_PHASE2_FORM_TIMEOUT_MS
+    assert s.phase2_action_delay_ms == DEFAULT_PHASE2_ACTION_DELAY_MS
+    assert s.chrome_password_prompt == "skip"
+
+    s2 = load_phase2_settings(
+        environ={
+            **base,
+            "PHASE2_ACTION_DELAY_MS": "250",
+            "PHASE2_CHROME_PASSWORD_PROMPT": "dismiss",
+        }
+    )
+    assert s2.phase2_action_delay_ms == 250
+    assert s2.chrome_password_prompt == "dismiss"
+
+    s3 = load_phase2_settings(
+        environ={**base, "PHASE2_CHROME_PASSWORD_PROMPT": "save"}
+    )
+    assert s3.chrome_password_prompt == "save"

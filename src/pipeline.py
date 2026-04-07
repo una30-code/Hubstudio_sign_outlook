@@ -271,6 +271,8 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
                     profile=profile,
                     email_domain=p2.outlook_email_domain,
                     form_step_timeout_ms=p2.phase2_form_timeout_ms,
+                    action_delay_ms=p2.phase2_action_delay_ms,
+                    chrome_password_prompt=p2.chrome_password_prompt,
                     screenshots_dir=screenshots_dir,
                 )
                 if not apply_res["success"]:
