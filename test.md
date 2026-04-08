@@ -11,7 +11,7 @@
 | --------- | ----------------------------------------- | ------------------------------------------------------- |
 | 手工冒烟      | 指人工操作、快速覆盖主要流程，验证系统最基本功能是否正常，无须细致验证所有边界情况 | 例如依照第2节用例，直接运行程序，观察主要结果，确认无重大报错                         |
 | 独立 API 探测 | `python scripts/test_env_create_api.py`   | 最小请求体（如「不使用代理」），与主流程解耦，用于区分「代码问题」与「本机 connector 问题」     |
-| 自动化（可选）   | pytest                                    | 可对 `load_hubstudio_env_create_config` 等做纯单元测试；**当前未强制** |
+| 自动化（可选）   | pytest                                    | 含纯逻辑与 Playwright 轻量页：`tests/test_*.py`；人机长按见 **TC-P2-006** |
 
 
 ## 2. 用例表（phase-0）
@@ -50,6 +50,7 @@
 | TC-P2-003 | DOM 校验通过       | `verify_page`                    | 页面加载完成                                                | 同上                            | `step=verify_page success=True`（URL 匹配或注册相关元素命中任一）      |
 | TC-P2-004 | 端到端成功          | `pipeline`                       | 已运行 **phase-1** 留档；TC-P2-001~003 可满足              | 同上                            | `success=True`；最终 `step=apply_signup_profile`；`data` 含 `steps_completed`、`email_used`、`archive_path` / `archive_ref` |
 | TC-P2-005 | 失败截图可追溯        | `open_signup_page / verify_page` | 故意错误环境 ID、`HUBSTUDIO_CDP_URL` 或 `OUTLOOK_REGISTER_URL` | 同上                            | `success=False`；`hubstudio_browser_start` / `connect` 失败无页截图；open/verify 失败尽量有 `screenshot_path` |
+| TC-P2-006 | 人机验证页「Press and hold」定位与长按 | `ms_hold_challenge` | 已安装 Playwright 与 Chromium（`pip install playwright` 且 `playwright install chromium`）；可选离线 | 在项目根目录：`pytest -q tests/test_ms_hold_challenge.py` | **Mock 用例**始终通过；**浏览器用例**在能启动 Chromium 时：`try_ms_accessible_hold_challenge` 对模拟页返回 `success=True` 且 `data.skipped=False`，即已尝试点击无障碍入口并对「Press and hold」执行带 `delay` 的长按（与真实微软页相比仍为冒烟级，页面改版需同步选择器见 `design.md` §6.5 / `src/ms_hold_challenge.py`） |
 
 
 ## 5. 产物与报告
@@ -68,6 +69,7 @@
 - **必须**：在目标环境上 **TC-P1-004** 通过（或等价手工签字）。
 - **必须**：在目标环境上 **TC-P2-001~TC-P2-004** 通过（或等价手工签字）。
 - **建议**：**TC-P0-004** 至少验证一次；**TC-P0-005** 在排障时优先执行以隔离 connector。
+- **建议**：迭代 `ms_hold_challenge` 或对接真实微软人机页时执行 **TC-P2-006**（Mock 部分可 CI；带 Chromium 的用例需本机或 CI 安装浏览器）。
 
 ## 7. 变更记录
 
@@ -77,5 +79,6 @@
 | （初始化骨架）    | 文档创建                                              |
 | 2026-03-20 | 旧版：对齐 Phase 1（CDP / 注册页）                          |
 | 2026-04-02 | 重写为 phase-0：环境创建、独立脚本、与 `tasks.md` T-007/T-008 一致 |
+| 2026-04-08 | 新增 **TC-P2-006**：`tests/test_ms_hold_challenge.py`（人机页检测 Mock + Playwright 模拟页长按） |
 
 

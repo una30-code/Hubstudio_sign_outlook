@@ -60,7 +60,7 @@ phase-0 期间明确不做的事项（phase-1 仍不做）：不连 CDP、不打
 
 | ID    | 任务                                                             | 状态             | 验收标准                                                                                              |
 | ----- | ---------------------------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------- |
-| T-001 | 对齐文档基线：`requirements.md` + `design.md` + 本任务清单一致   | 已完成           | 当时以 phase-0 为迭代目标；现 design 已含 phase-1（§9）                                               |
+| T-001 | 对齐文档基线：`requirements.md` + `design.md` + 本任务清单一致   | 已完成           | 当时以 phase-0 为迭代目标；现 design 含 phase-1 叙事（§5），契约见 `docs/contracts.md`                    |
 | T-002 | 实现配置模型与读取逻辑（`.env` + `hubstudio_env_create_config`） | 已完成           | `src/config.py`：`load_hubstudio_env_create_config`                                                   |
 | T-003 | 实现命名规则与序号策略（A 方案）                                 | 已完成（单条）   | `src/sequence_state.py` + `pipeline` 接入；**批量 T-003-4 仍待办**                                    |
 | T-004 | 实现字段校验逻辑                                                 | 已完成           | `src/validate_hubstudio_env_config.py`                                                                |

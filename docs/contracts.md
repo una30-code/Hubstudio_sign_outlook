@@ -15,7 +15,7 @@
 | 字段 | 类型 | 含义 |
 | ---- | ---- | ---- |
 | `success` | bool | 本步是否成功 |
-| `step` | str | 逻辑步骤名（见 §8） |
+| `step` | str | 逻辑步骤名（phase-0 主流程见 §3.7；phase-2 典型值见 §5.5） |
 | `message` | str | 人类可读说明 |
 | `data` | object | 成功或补充信息（键随步骤变化） |
 | `error` | str \| null | 失败时错误摘要 |
@@ -92,7 +92,7 @@ phase-0 环境创建成功时，`data` 至少含：`container_code`、`environme
 
 | 字段名 | 规则 | 说明 |
 | ------ | ---- | ---- |
-| `proxy_raw` | `host:port:user:pass` | 提供代理配置信息的简便字符串格式，内容依次为主机、端口、用户名、密码。该字段与结构化的 `proxy.*` 字段只能二选一填写——如果两者同时存在，以结构化 `proxy.*` 字段为准。
+| `proxy_raw` | `host:port:user:pass` | 与结构化 `proxy.*` **二选一**；同时存在时以 `proxy.*` 为准 |
 
 ### 3.5 创建接口与示例 JSON
 
@@ -119,11 +119,42 @@ phase-0 环境创建成功时，`data` 至少含：`container_code`、`environme
 }
 ```
 
-### 3.6 环境名称规则（摘要）
+### 3.6 环境名称与序号（A 方案）
 
-- 自动生成格式：`{site_name}{effective_sequence}_{region}_{YYYY年M月D日}`（本地日历日期）。
-- 序号由 `logs/sequence_state.json` 按 `site_name + region + 日期` 维护（A 方案）；批量创建时第 `k` 条使用 `next_sequence + k`。
-- 显式 `environment_name` 须与上述语义一致且长度合规；超长按 Hubstudio 限制截断（实现与参考脚本对齐）。
+命名与 Hubstudio `containerName` 对齐。**代理类型、语言、内核等锁定值见 §3.3**（本节不重复）。
+
+#### 3.6.1 名称组成要素（顺序固定）
+
+1. **网站名称**（`site_name`，默认 `outlook`）：业务站点标识，写入环境名前缀。  
+2. **序号**（正整数）：紧跟网站名，**无下划线**分隔（如 `outlook1`、`outlook12`），用于在同一 `site_name` + `region` + 日期下区分多次创建。  
+3. **IP 地区**（`region`）：与代理一致的地区标签（如 `美国`），必填。  
+4. **本地日期**：创建时 **本机操作系统本地日历** 的日期，格式 **`YYYY年M月D日`**。
+
+#### 3.6.2 A 方案：系统自动维护序号
+
+- **状态文件**：项目根目录 `logs/sequence_state.json`（本版固定于此）。  
+- **键维度**：`site_name + region + YYYY年M月D日` → 下一可用序号。  
+- **运行规则**：  
+  1. 启动创建流程前读取状态文件；不存在则初始化为 `1`。  
+  2. **单条**创建使用当前 `next_sequence`，成功后自增 `+1` 并落盘。  
+  3. **批量**创建：第 `k` 条（`k` 从 **0** 起）使用 `next_sequence + k`，**整批成功**后一次性写回新值。  
+  4. **部分失败**：仅对实际创建成功的条目计入已占用序号，避免跳号失控。  
+- **`name_sequence_start`**：仅在初始化历史数据或人工纠偏时使用；覆盖后会同步更新状态文件。
+
+#### 3.6.3 自动生成格式与示例
+
+统一格式：`{site_name}{effective_sequence}_{region}_{YYYY年M月D日}`
+
+- **单条**（本次只创建 1 个环境）：`effective_sequence = next_sequence`。  
+  - 例（起点 1）：`outlook1_美国_2026年4月1日`  
+  - 例（起点 20）：`outlook20_美国_2026年4月1日`  
+- **批量**（同一运行内多条）：第 `k` 条 `effective_sequence = next_sequence + k`。  
+  - 例（起点 5，三条）：`outlook5_美国_2026年4月1日`、`outlook6_美国_2026年4月1日`、`outlook7_美国_2026年4月1日`
+
+#### 3.6.4 显式 `environment_name`
+
+- 长度 1–60；须与 **`site_name` + 数字序号 + `_` + `region` + `_` + 当日 `YYYY年M月D日`** 语义一致，且序号与当前运行约定下的 `effective_sequence` 一致，否则校验失败。  
+- 总长度超过 60 时按 Hubstudio 限制截断（实现与参考脚本对齐，截断后仍应尽量保留地区与日期可辨）。
 
 ### 3.7 phase-0 主流程 `step`
 
@@ -213,11 +244,11 @@ phase-0 环境创建成功时，`data` 至少含：`container_code`、`environme
 
 ## 6. 与 narrative 文档的关系
 
-| 主题 | 本文 § | `design.md` 对应（论述与边界） |
-| ---- | ------ | ------------------------------ |
-| phase-0 字段与命名 | §3 | §3～§8 |
-| phase-1 | §4 | §9 |
-| phase-2 | §5 | §10 |
-| StepResult / archive | §1～§2 | §6、§7.1、§10.8 |
+| 主题 | 本文 § | `design.md`（叙事与边界） |
+| ---- | ------ | -------------------------- |
+| phase-0 目标、模块、可观测 | §3（字段/命名/请求体）、§1～§2 | §1～§4 |
+| phase-1 | §4 | §5 |
+| phase-2 | §5 | §6 |
+| StepResult / archive | §1、§2 | §3～§4（原则）；载荷与键以本文为准 |
 
 若叙事与表格冲突，**以本文表格与 `src/` 实现为准**，并应回写修正 `design.md`。
