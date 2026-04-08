@@ -122,8 +122,9 @@ def _try_chrome_password_prompt(
         )
     else:
         patterns = (
+            re.compile(r"一律不", re.I),
             re.compile(r"不用了", re.I),
-            re.compile(r"No\s+thanks|Not\s+now", re.I),
+            re.compile(r"Never|No\s+thanks|Not\s+now", re.I),
         )
     handled = False
     for pat in patterns:

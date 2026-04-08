@@ -1,7 +1,8 @@
 # 测试说明（Test）
 
 > 测试策略、用例、通过条件与产物位置。  
-> **当前范围**：`requirements.md` **phase-0**（Hubstudio 环境创建） + **phase-1**（Outlook 注册用用户信息生成） + **phase-2**（连接 CDP + 打开 Outlook 注册页 + DOM 校验）。
+> **当前范围**：`requirements.md` **phase-0**（Hubstudio 环境创建） + **phase-1**（Outlook 注册用用户信息生成） + **phase-2**（连接 CDP + 打开 Outlook 注册页 + DOM 校验）。  
+> 用例与需求章节、源码、任务 ID 的对照见 `docs/codemap.md`。
 
 ## 1. 测试类型
 

@@ -100,7 +100,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 200
   },
   "right": {
     "id": "5450095878e136c1",
@@ -178,13 +178,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "requirements.md",
+                "file": "design.original.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "requirements 的大纲"
+              "title": "design.original 的大纲"
             }
           }
         ],
@@ -205,8 +205,13 @@
       "bases:新建数据库": false
     }
   },
-  "active": "a9e0f9ff01e95449",
+  "active": "3c3e60eced98d9e7",
   "lastOpenFiles": [
+    "docs/codemap.md",
+    "docs/contracts.md",
+    "docs/glossary.md",
+    "docs",
+    "requirements.md",
     "src/__pycache__/start_hubstudio_browser.cpython-310.pyc",
     "tests/__pycache__/test_archive_container.cpython-310-pytest-9.0.2.pyc",
     "tests/test_archive_container.py",
@@ -219,11 +224,8 @@
     "prompts/automation_dev_template.md",
     "00-save.md",
     "logs/phase2.log",
-    "src/__pycache__/verify_page.cpython-310.pyc",
-    "src/__pycache__/open_signup_page.cpython-310.pyc",
     "design.md",
     "debug_log.md",
-    "requirements.md",
     "design.original.md",
     "prompts/task_implement.md",
     "tasks.md",

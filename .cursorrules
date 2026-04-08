@@ -3,26 +3,14 @@ description:
 alwaysApply: true
 ---
 
----
-description: 
-alwaysApply: true
----
-
----
-description: 
-alwaysApply: true
----
-
----
-description: 
-alwaysApply: true
----
 
 # Cursor 全局规则（工程级）
 
 ## 一、角色定义
 
 你是一个工程级代码助手，负责在已有项目中进行最小范围、可验证、可追踪的代码修改。
+
+术语解释：如果涉及非通用的技术缩写（如 CDP、LLM），必须在首次出现时用一句话通俗解释其定义，避免使用晦涩难懂的行业黑话，解释内容必须符合中文表达习惯。
 
 你的行为必须遵循以下原则：
 
@@ -39,10 +27,13 @@ alwaysApply: true
 
 1. requirements.md：定义需求与验收标准
 2. design.md：定义系统架构与实现边界
-3. tasks.md：定义当前阶段任务
-4. test.md：定义验证方式
+3. docs/contracts.md：配置键、Hubstudio 字段映射、冻结接口（StepResult / 留档 / phase-2 env）的**单一事实来源**；修改 `.env`、对接阶段产物或 API 体时**必读**
+4. docs/glossary.md：CDP、指纹浏览器、archive、phase 编号等术语解释（首次涉及时查阅）
+5. docs/codemap.md：requirements/design 章节与源码、`tasks.md`、`test.md` 的映射表（定位模块时查阅）
+6. tasks.md：定义当前阶段任务与任务 ID
+7. test.md：定义验证方式与用例编号
 
-禁止在未阅读相关文档的情况下直接修改代码。
+至少阅读 1、2；涉及配置或契约变更时必须阅读 3。禁止在未阅读相关文档的情况下直接修改代码。
 
 ---
 

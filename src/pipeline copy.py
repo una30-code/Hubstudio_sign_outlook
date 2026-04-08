@@ -13,7 +13,6 @@ if __package__ in {None, ""}:
     from open_signup_page import open_signup_page
     from verify_page import verify_page
     from apply_signup_profile import apply_outlook_signup_profile
-    from ms_hold_challenge import try_ms_accessible_hold_challenge
     from sequence_state import (
         STATE_FILE_NAME,
         build_environment_name,
@@ -33,7 +32,6 @@ else:
     from .open_signup_page import open_signup_page
     from .verify_page import verify_page
     from .apply_signup_profile import apply_outlook_signup_profile
-    from .ms_hold_challenge import try_ms_accessible_hold_challenge
     from .sequence_state import (
         STATE_FILE_NAME,
         build_environment_name,
@@ -281,19 +279,6 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
                     return apply_res, None
 
                 adata = apply_res["data"]
-                hold_res = try_ms_accessible_hold_challenge(
-                    page,
-                    enabled=p2.phase2_try_hold_challenge,
-                    form_step_timeout_ms=p2.phase2_form_timeout_ms,
-                    after_accessible_wait_ms=p2.phase2_hold_after_accessible_ms,
-                    hold_press_ms=p2.phase2_hold_press_duration_ms,
-                    chrome_password_prompt=p2.chrome_password_prompt,
-                    screenshots_dir=screenshots_dir,
-                )
-                if not hold_res["success"]:
-                    return hold_res, None
-                hdata = hold_res.get("data") or {}
-
                 # phase-2 冒烟成功留档（与 design §10.8 一致；不写密码）
                 archive_path, archive_ref = append_archive_record(
                     log_dir=p2.log_dir,
@@ -308,7 +293,6 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
                         "element_hit": vdata.get("element_hit"),
                         "steps_completed": adata.get("steps_completed"),
                         "email_used": adata.get("email_used"),
-                        "hold_challenge": hdata,
                         "verified_at": datetime.now().isoformat(timespec="seconds"),
                     },
                 )
@@ -316,17 +300,12 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
                 out["data"] = {
                     **vdata,
                     **adata,
-                    **hdata,
                     "archive_path": archive_path,
                     "archive_ref": archive_ref,
                 }
-                msg_tail = "；页面校验已通过；已写入 phase-2 留档"
-                if hdata.get("skipped"):
-                    msg_tail += "（人机验证未触发或未启用）"
-                else:
-                    msg_tail += "；" + hold_res["message"]
-                    out["step"] = hold_res["step"]
-                out["message"] = apply_res["message"] + msg_tail
+                out["message"] = (
+                    apply_res["message"] + "；页面校验已通过；已写入 phase-2 留档"
+                )
                 return out, None
             finally:
                 try:

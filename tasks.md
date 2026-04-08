@@ -1,7 +1,8 @@
 # 任务列表（Tasks）
 
 > 按优先级执行；完成一项再开下一项。状态：`待办` / `进行中` / `已完成` / `阻塞`。  
-> **当前目标**：**phase-2**（`requirements.md` §1.3）— 连接 Hubstudio（CDP）并打开 Outlook 注册页完成基础 DOM 校验；phase-1 已完成。
+> **当前目标**：**phase-2**（`requirements.md` §1.3）— 连接 Hubstudio（CDP）并打开 Outlook 注册页完成基础 DOM 校验；phase-1 已完成。  
+> **需求章节 ↔ 源码 ↔ 本表任务 ↔ 测试用例**的矩阵见 `docs/codemap.md`。
 
 ## 〇、阶段对照（避免混淆）
 

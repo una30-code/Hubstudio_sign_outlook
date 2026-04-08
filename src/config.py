@@ -277,6 +277,14 @@ DEFAULT_PAGE_LOAD_TIMEOUT_MS = 100_000
 DEFAULT_PHASE2_FORM_TIMEOUT_MS = 15_000
 # 每一步主操作后的间隔（毫秒），降低操作过快带来的不稳定；0 表示不额外等待
 DEFAULT_PHASE2_ACTION_DELAY_MS = 1_000
+DEFAULT_PHASE2_HOLD_AFTER_ACCESSIBLE_MS = 2_500
+DEFAULT_PHASE2_HOLD_PRESS_DURATION_MS = 4_500
+
+
+def _env_truthy(raw: str | None) -> bool:
+    if raw is None or not str(raw).strip():
+        return False
+    return str(raw).strip().lower() in ("1", "true", "yes", "on")
 
 
 @dataclass(frozen=True)
@@ -329,6 +337,9 @@ class Phase2Settings:
     phase2_form_timeout_ms: int
     phase2_action_delay_ms: int
     chrome_password_prompt: str
+    phase2_try_hold_challenge: bool
+    phase2_hold_after_accessible_ms: int
+    phase2_hold_press_duration_ms: int
     screenshots_dir: Path
     log_dir: Path
     cdp_url_override: str | None
@@ -364,6 +375,24 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
     chrome_password_prompt = _chrome_password_prompt_mode(
         environ.get("PHASE2_CHROME_PASSWORD_PROMPT")
     )
+    phase2_try_hold_challenge = _env_truthy(environ.get("PHASE2_TRY_HOLD_CHALLENGE"))
+    phase2_hold_after_accessible_ms = max(
+        0,
+        _int_with_default(
+            environ.get("PHASE2_HOLD_AFTER_ACCESSIBLE_MS"),
+            DEFAULT_PHASE2_HOLD_AFTER_ACCESSIBLE_MS,
+        ),
+    )
+    phase2_hold_press_duration_ms = max(
+        1_500,
+        min(
+            30_000,
+            _int_with_default(
+                environ.get("PHASE2_HOLD_PRESS_DURATION_MS"),
+                DEFAULT_PHASE2_HOLD_PRESS_DURATION_MS,
+            ),
+        ),
+    )
 
     cdp_override = environ.get("HUBSTUDIO_CDP_URL", "").strip() or None
     api_base = environ.get("HUBSTUDIO_API_BASE", "").strip()
@@ -387,6 +416,9 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
             phase2_form_timeout_ms=phase2_form_timeout_ms,
             phase2_action_delay_ms=phase2_action_delay_ms,
             chrome_password_prompt=chrome_password_prompt,
+            phase2_try_hold_challenge=phase2_try_hold_challenge,
+            phase2_hold_after_accessible_ms=phase2_hold_after_accessible_ms,
+            phase2_hold_press_duration_ms=phase2_hold_press_duration_ms,
             screenshots_dir=screenshots_dir,
             log_dir=log_dir,
             cdp_url_override=cdp_override,
@@ -412,6 +444,9 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
         phase2_form_timeout_ms=phase2_form_timeout_ms,
         phase2_action_delay_ms=phase2_action_delay_ms,
         chrome_password_prompt=chrome_password_prompt,
+        phase2_try_hold_challenge=phase2_try_hold_challenge,
+        phase2_hold_after_accessible_ms=phase2_hold_after_accessible_ms,
+        phase2_hold_press_duration_ms=phase2_hold_press_duration_ms,
         screenshots_dir=screenshots_dir,
         log_dir=log_dir,
         cdp_url_override=None,
