@@ -13,7 +13,10 @@ import pytest
 
 from src.ms_hold_challenge import (
     _page_looks_like_press_hold_challenge,
+    click_ms_challenge_accessibility_only,
+    press_ms_challenge_hold_only,
     try_ms_accessible_hold_challenge,
+    wait_ms_challenge_step03,
 )
 
 # 贴近当前「Let's prove you're human / Press and hold」卡片的最小 DOM（非真实微软页面）
@@ -25,6 +28,17 @@ _PRESS_HOLD_FIXTURE_HTML = """
   <h1>Let's prove you're human</h1>
   <p>Press and hold the button.</p>
   <button type="button" aria-label="Accessible challenge">◇</button>
+  <button type="button">Press and hold</button>
+</body></html>
+"""
+
+# 仅有主按钮、无无障碍入口（用于幂等 noop）
+_PRESS_HOLD_NO_ACCESS_HTML = """
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/></head>
+<body>
+  <h1>Let's prove you're human</h1>
+  <p>Press and hold the button.</p>
   <button type="button">Press and hold</button>
 </body></html>
 """
@@ -106,3 +120,80 @@ def test_try_ms_accessible_hold_challenge_clicks_press_and_hold(
     assert r["success"] is True, f"期望成功，实际: {r}"
     assert r["data"].get("skipped") is False
     assert r["data"].get("hold_press_ms") == 2_000
+    assert r["data"].get("accessibility_used_force") is False
+    assert r["data"].get("hold_used_force") is False
+
+
+def test_click_accessibility_only_on_fixture(playwright_chromium_page, tmp_path: Path) -> None:
+    page = playwright_chromium_page
+    page.set_content(_PRESS_HOLD_FIXTURE_HTML)
+    r = click_ms_challenge_accessibility_only(
+        page,
+        form_step_timeout_ms=15_000,
+        chrome_password_prompt="skip",
+        screenshots_dir=tmp_path,
+    )
+    assert r["success"] is True, r
+    assert r["data"].get("accessibility_used_force") is False
+
+
+def test_click_accessibility_noop_when_only_press_visible(
+    playwright_chromium_page, tmp_path: Path
+) -> None:
+    page = playwright_chromium_page
+    page.set_content(_PRESS_HOLD_NO_ACCESS_HTML)
+    r = click_ms_challenge_accessibility_only(
+        page,
+        form_step_timeout_ms=15_000,
+        chrome_password_prompt="skip",
+        screenshots_dir=tmp_path,
+        noop_if_accessibility_missing=True,
+    )
+    assert r["success"] is True, r
+    assert r["data"].get("noop_accessibility") is True
+
+
+def test_press_hold_only_on_fixture(playwright_chromium_page, tmp_path: Path) -> None:
+    page = playwright_chromium_page
+    page.set_content(_PRESS_HOLD_FIXTURE_HTML)
+    r = press_ms_challenge_hold_only(
+        page,
+        form_step_timeout_ms=15_000,
+        hold_press_ms=2_000,
+        chrome_password_prompt="skip",
+        screenshots_dir=tmp_path,
+    )
+    assert r["success"] is True, r
+    assert r["data"].get("hold_press_ms") == 2_000
+    assert r["data"].get("hold_used_force") is False
+
+
+def test_wait_step03_sleep(playwright_chromium_page, tmp_path: Path) -> None:
+    page = playwright_chromium_page
+    page.set_content(_PRESS_HOLD_FIXTURE_HTML)
+    r = wait_ms_challenge_step03(
+        page,
+        mode="sleep",
+        sleep_ms=50,
+        until_press_timeout_ms=1_000,
+        form_step_timeout_ms=5_000,
+        screenshots_dir=tmp_path,
+    )
+    assert r["success"] is True, r
+    assert r["data"].get("mode") == "sleep"
+    assert (tmp_path / "ms_hold_step_wait.png").is_file()
+
+
+def test_wait_step03_until_press(playwright_chromium_page, tmp_path: Path) -> None:
+    page = playwright_chromium_page
+    page.set_content(_PRESS_HOLD_FIXTURE_HTML)
+    r = wait_ms_challenge_step03(
+        page,
+        mode="until_press",
+        sleep_ms=0,
+        until_press_timeout_ms=5_000,
+        form_step_timeout_ms=15_000,
+        screenshots_dir=tmp_path,
+    )
+    assert r["success"] is True, r
+    assert r["data"].get("press_visible") is True

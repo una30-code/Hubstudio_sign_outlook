@@ -54,6 +54,10 @@ def test_load_phase2_settings_defaults_and_overrides() -> None:
     assert s.phase2_form_timeout_ms == DEFAULT_PHASE2_FORM_TIMEOUT_MS
     assert s.phase2_action_delay_ms == DEFAULT_PHASE2_ACTION_DELAY_MS
     assert s.chrome_password_prompt == "skip"
+    assert s.phase2_hold_refind_root_before_press is True
+
+    s_ref_off = load_phase2_settings(environ={**base, "MS_HOLD_REFIND_ROOT_BEFORE_PRESS": "0"})
+    assert s_ref_off.phase2_hold_refind_root_before_press is False
 
     s2 = load_phase2_settings(
         environ={
