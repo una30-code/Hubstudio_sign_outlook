@@ -289,6 +289,7 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
                     hold_press_ms=p2.phase2_hold_press_duration_ms,
                     chrome_password_prompt=p2.chrome_password_prompt,
                     screenshots_dir=screenshots_dir,
+                    refind_challenge_root_before_hold=p2.phase2_hold_refind_root_before_press,
                 )
                 if not hold_res["success"]:
                     return hold_res, None

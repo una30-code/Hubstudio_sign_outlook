@@ -279,6 +279,8 @@ DEFAULT_PHASE2_FORM_TIMEOUT_MS = 15_000
 DEFAULT_PHASE2_ACTION_DELAY_MS = 1_000
 DEFAULT_PHASE2_HOLD_AFTER_ACCESSIBLE_MS = 2_500
 DEFAULT_PHASE2_HOLD_PRESS_DURATION_MS = 4_500
+# 「按住按钮」流程：长按前是否重新查找 root 元素（True 可避免动态刷新导致的 ElementHandle 失效）
+DEFAULT_PHASE2_HOLD_REFIND_ROOT_BEFORE_PRESS = True
 
 
 def _env_truthy(raw: str | None) -> bool:
@@ -340,6 +342,7 @@ class Phase2Settings:
     phase2_try_hold_challenge: bool
     phase2_hold_after_accessible_ms: int
     phase2_hold_press_duration_ms: int
+    phase2_hold_refind_root_before_press: bool
     screenshots_dir: Path
     log_dir: Path
     cdp_url_override: str | None
@@ -393,6 +396,11 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
             ),
         ),
     )
+    _ref_raw = (environ.get("MS_HOLD_REFIND_ROOT_BEFORE_PRESS") or "").strip()
+    if _ref_raw:
+        phase2_hold_refind_root_before_press = _env_truthy(_ref_raw)
+    else:
+        phase2_hold_refind_root_before_press = DEFAULT_PHASE2_HOLD_REFIND_ROOT_BEFORE_PRESS
 
     cdp_override = environ.get("HUBSTUDIO_CDP_URL", "").strip() or None
     api_base = environ.get("HUBSTUDIO_API_BASE", "").strip()
@@ -419,6 +427,7 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
             phase2_try_hold_challenge=phase2_try_hold_challenge,
             phase2_hold_after_accessible_ms=phase2_hold_after_accessible_ms,
             phase2_hold_press_duration_ms=phase2_hold_press_duration_ms,
+            phase2_hold_refind_root_before_press=phase2_hold_refind_root_before_press,
             screenshots_dir=screenshots_dir,
             log_dir=log_dir,
             cdp_url_override=cdp_override,
@@ -447,6 +456,7 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
         phase2_try_hold_challenge=phase2_try_hold_challenge,
         phase2_hold_after_accessible_ms=phase2_hold_after_accessible_ms,
         phase2_hold_press_duration_ms=phase2_hold_press_duration_ms,
+        phase2_hold_refind_root_before_press=phase2_hold_refind_root_before_press,
         screenshots_dir=screenshots_dir,
         log_dir=log_dir,
         cdp_url_override=None,
