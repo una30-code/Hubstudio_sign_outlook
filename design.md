@@ -93,9 +93,20 @@
 - 截图：`screenshots/`（如 `open_signup_page.png`、`verify_page.png`、`apply_signup_profile.png` 等）。  
 - **`ECONNREFUSED` 指向本地 CDP 端口**：多为端口未监听或 URL 错误，见 `debug_log.md`。
 
-### 6.5 可选「Press and hold」人机步骤
+### 6.5 「Press and hold」人机步骤（接在填表之后）
 
-开启 `PHASE2_TRY_HOLD_CHALLENGE` 时，在填表成功后检测文案并尝试无障碍入口与长按；**脆弱性**（改版、多语言、iframe、浏览器外壳遮挡）与**合规**责任由使用方自负。变量与入口见 `docs/contracts.md` §5.3 与 `src/ms_hold_challenge.py` → `try_ms_accessible_hold_challenge`；成功且非跳过时最终 `step` 可为 `ms_hold_challenge`。
+主流程在 **`apply_outlook_signup_profile` 成功之后** 调用 `try_ms_accessible_hold_challenge`（与 `src/pipeline.py` 顺序一致）。**未设置** `PHASE2_TRY_HOLD_CHALLENGE` 时**默认尝试**人机；显式 `0` / `false` / `no` / `off` 可关闭。人机检测前默认**短睡 4s + 最多轮询 20s**（`PHASE2_HOLD_PREP_*`，见 `docs/contracts.md` §5.3），减轻「填表刚结束人机卡片尚未渲染」导致的误跳过；跳过且原因为未识别时写入带时间戳的 `screenshots/ms_hold_challenge_skipped_*.png`。流水线成功结束时 **`step` 为人机步骤名**（含跳过情形），便于与日志对照。
+
+**挑战根节点选择（路线 A，V1）**：在 **iframe.hsprotect.net** 等 URL 的 frame 与「含人机正文」的 frame 中优先（子 frame 逆序）；主文档常残留说明文案故**排在后**；若已锁定 `iframe` / `iframe_hsprotect`，长按前 **refind 不会降回 main**（避免误把操作范围切回顶层）。**Press and hold** 除 `<button>` 外兼容 **`<p>` 文案** 与 `Press & hold` 变体；无障碍入口兼容 **`a[role="button"]`**。prep 轮询用「任一处出现人机文案或 hsprotect frame」判定。日志关键行带 **`[MS_HOLD] stage=…`** 前缀。失败时 `data` 含 **`hsprotect_url_bases`**（去 query 摘要）便于对照。外壳层「保存密码」仍可能不在 DOM：建议在 `.env` 设 **`PHASE2_CHROME_PASSWORD_PROMPT=dismiss`** 并配合 HubStudio 关闭提示。
+
+### 6.6 浏览器会话与「关浏览器」的影响（项目结论，单点说明）
+
+以下结论来自实际验证，**其它文档不重复展开**，仅作交叉引用。
+
+1. **关浏览器或 Hubstudio `browser/stop`→`start` 会结束当前浏览器进程**。在本场景中，注册流程依赖的**页面会话/进度往往会丢失**，表现为需**重新打开注册页并重新填写**，**不能**指望「先关掉浏览器拿新调试地址，再在同一流程里接着做人机」。
+2. **主流程顺序**：在同一次 CDP 附着会话内完成「打开注册页 → 校验 → 填表 → **人机尝试**」。人机必须在**未主动关掉该会话**的前提下接在填表之后执行（见 `src/pipeline.py`）。
+3. **若必须保留已填好的页面、仅让脚本附着操作**：应使用 **`HUBSTUDIO_CDP_URL`** 直连**当前仍在运行**的浏览器调试地址，**避免**仅用环境 ID 触发会执行 stop/start 的路径（见 §6.1）。
+4. **`tools/hubstudio_cdp_probe`** 会反复 stop/start，**只适用于观测调试端口变化**，**不要**在需要保留注册进度时对同一环境运行。
 
 ---
 
@@ -103,6 +114,8 @@
 
 | 日期 | 摘要 |
 | ---- | ---- |
+| 2026-04-09 | §6.5：短睡+轮询 prep；路线 A（hsprotect/iframe 优先、refind 不降 main、`<p>` Press and hold）；`[MS_HOLD]` 日志与失败 frame 摘要；跳过截图与 step 约定；密码条建议 dismiss |
+| 2026-04-08 | §6.5～§6.6：填表后人机默认启用；关浏览器与会话丢失结论（单点说明）；与 pipeline 顺序对齐 |
 | 2026-04-08 | **文档收束（第二部分）**：表格与枚举迁至 `docs/contracts.md`；`design.md` 重排为 §1～§7，仅保留目标、边界、模块协作与 phase-2 实现要点 |
 | 2026-04-07 | §10.9：可选 `ms_hold_challenge`；`PHASE2_TRY_HOLD_CHALLENGE` 等（历史：旧 §10） |
 | 2026-04-06 | `PHASE2_ACTION_DELAY_MS`、`PHASE2_CHROME_PASSWORD_PROMPT`；人物信息顺序先生日后姓名（历史：旧 §10） |

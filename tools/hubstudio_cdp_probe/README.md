@@ -2,6 +2,7 @@
 
 用于验证：**同一环境 ID** 在多次 `browser/stop` → `browser/start` 后，返回的 **`debuggingPort` / CDP HTTP 基址是否变化**。
 
+- **警告**：本工具会反复关开浏览器，**会清空当前环境下的注册/页面会话**；需要保留进度时勿对同一环境运行。结论与说明见仓库根目录 `design.md` §6.6。
 - **不写入** 仓库根目录的 `logs/`、`screenshots/`、`.env`。
 - 结果仅写入本目录下的 `output/`（已 `.gitignore`）。
 

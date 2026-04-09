@@ -171,7 +171,10 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
     2. 通过 Playwright CDP 连接此浏览器，获取页面对象；
     3. 打开 Outlook 注册页面并校验页面（open_signup_page、verify_page）；
     4. 读取 phase-1 留档，将用户信息填入注册页（apply_outlook_signup_profile，不提交最终开户）；
-    5. 成功时写入 phase-2 留档；全程使用结构化 StepResult。
+    5. 在填表成功后，于**同一会话**内执行人机验证尝试（try_ms_accessible_hold_challenge；默认开启，可用 PHASE2_TRY_HOLD_CHALLENGE 关闭）；
+    6. 成功时写入 phase-2 留档；全程使用结构化 StepResult。
+
+    浏览器被关闭或 stop/start 会清空注册会话、需重填——见 design.md §6.6。
 
     返回:
         Tuple[StepResult, Any | None]
@@ -290,6 +293,8 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
                     chrome_password_prompt=p2.chrome_password_prompt,
                     screenshots_dir=screenshots_dir,
                     refind_challenge_root_before_hold=p2.phase2_hold_refind_root_before_press,
+                    prep_short_sleep_ms=p2.phase2_hold_prep_short_sleep_ms,
+                    prep_poll_ms=p2.phase2_hold_prep_poll_ms,
                 )
                 if not hold_res["success"]:
                     return hold_res, None
@@ -321,13 +326,24 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
                     "archive_path": archive_path,
                     "archive_ref": archive_ref,
                 }
+                out["step"] = hold_res["step"]
                 msg_tail = "；页面校验已通过；已写入 phase-2 留档"
                 if hdata.get("skipped"):
-                    msg_tail += "（人机验证未触发或未启用）"
+                    reason = hdata.get("skip_reason")
+                    if reason == "disabled":
+                        msg_tail += "（人机验证：已在配置中关闭）"
+                    elif reason == "not_detected_after_wait":
+                        msg_tail += (
+                            "（人机验证：等待后轮询仍未识别到人机页，已跳过；"
+                            "见 screenshots/ms_hold_challenge_skipped_*.png）"
+                        )
+                    else:
+                        msg_tail += "（人机验证：已跳过）"
                 else:
                     msg_tail += "；" + hold_res["message"]
-                    out["step"] = hold_res["step"]
                 out["message"] = apply_res["message"] + msg_tail
+                if hdata.get("skipped") and hold_res.get("screenshot_path"):
+                    out["screenshot_path"] = hold_res["screenshot_path"]
                 return out, None
             finally:
                 try:

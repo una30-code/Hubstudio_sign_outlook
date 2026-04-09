@@ -9,7 +9,7 @@
 | 路径 | 职责 |
 | ---- | ---- |
 | [requirements.md](requirements.md) | 分阶段目标、功能要求、验收/成功失败定义、范围外；不写全量 env 表 |
-| [design.md](design.md) | 各阶段目标与边界、模块协作、phase-2 自动化要点；**表格级契约**以 `docs/contracts.md` 为准 |
+| [design.md](design.md) | 各阶段目标与边界、模块协作、phase-2 自动化要点；**关浏览器与会话、人机接续**见 §6.6（单点）；**表格级契约**以 `docs/contracts.md` 为准 |
 | [tasks.md](tasks.md) | 任务 ID、状态、优先级；详细文件映射见 [docs/codemap.md](docs/codemap.md) |
 | [test.md](test.md) | 用例、命令、期望、产物路径 |
 | [debug_log.md](debug_log.md) | 排障记录，非设计规范 |

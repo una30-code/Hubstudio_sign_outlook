@@ -43,6 +43,22 @@ _PRESS_HOLD_NO_ACCESS_HTML = """
 </body></html>
 """
 
+# 主文档仅有说明、可操作控件在同源 iframe（模拟 hsprotect 外仅文案、内层才有点击目标）
+_NESTED_IFRAME_HOLD_HTML = """
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><title>outer</title></head>
+<body>
+  <h1>Let's prove you're human</h1>
+  <p>Please complete verification in the frame below.</p>
+  <iframe srcdoc="<!DOCTYPE html><html><head><meta charset=&quot;utf-8&quot;/></head>
+  <body>
+    <p>Extra text so outer heuristics differ.</p>
+    <button type=&quot;button&quot; aria-label=&quot;Accessible challenge&quot;>◇</button>
+    <p>Press and hold</p>
+  </body></html>"></iframe>
+</body></html>
+"""
+
 
 def _mock_page_with_body_text(text: str) -> MagicMock:
     page = MagicMock()
@@ -67,6 +83,11 @@ def test_page_looks_like_press_hold_chinese_keywords() -> None:
     assert _page_looks_like_press_hold_challenge(page) is True
 
 
+def test_page_looks_like_press_hold_lets_prove_heading() -> None:
+    page = _mock_page_with_body_text("Let's prove you're human\nPress and hold the button.")
+    assert _page_looks_like_press_hold_challenge(page) is True
+
+
 def test_try_ms_accessible_hold_challenge_disabled_skips() -> None:
     page = MagicMock()
     r = try_ms_accessible_hold_challenge(
@@ -80,6 +101,7 @@ def test_try_ms_accessible_hold_challenge_disabled_skips() -> None:
     )
     assert r["success"] is True
     assert r["data"].get("skipped") is True
+    assert r["data"].get("skip_reason") == "disabled"
 
 
 @pytest.fixture
@@ -100,6 +122,29 @@ def playwright_chromium_page():
         browser.close()
 
 
+def test_try_ms_accessible_hold_challenge_nested_iframe_prefers_inner(
+    playwright_chromium_page, tmp_path: Path
+) -> None:
+    """主文档无真实按钮、挑战在 iframe 内且文案为 <p>Press and hold</p> 时应仍能成功。"""
+    page = playwright_chromium_page
+    page.set_content(_NESTED_IFRAME_HOLD_HTML)
+
+    r = try_ms_accessible_hold_challenge(
+        page,
+        enabled=True,
+        form_step_timeout_ms=15_000,
+        after_accessible_wait_ms=150,
+        hold_press_ms=2_000,
+        chrome_password_prompt="skip",
+        screenshots_dir=tmp_path,
+        prep_short_sleep_ms=0,
+        prep_poll_ms=2_000,
+    )
+    assert r["success"] is True, f"期望成功，实际: {r}"
+    assert r["data"].get("challenge_root") in {"iframe", "iframe_hsprotect"}, r
+    assert r["data"].get("skipped") is False
+
+
 def test_try_ms_accessible_hold_challenge_clicks_press_and_hold(
     playwright_chromium_page, tmp_path: Path
 ) -> None:
@@ -116,6 +161,8 @@ def test_try_ms_accessible_hold_challenge_clicks_press_and_hold(
         hold_press_ms=2_000,
         chrome_password_prompt="skip",
         screenshots_dir=tmp_path,
+        prep_short_sleep_ms=0,
+        prep_poll_ms=2_000,
     )
     assert r["success"] is True, f"期望成功，实际: {r}"
     assert r["data"].get("skipped") is False

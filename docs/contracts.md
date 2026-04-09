@@ -186,6 +186,7 @@ phase-0 环境创建成功时，`data` 至少含：`container_code`、`environme
 
 配置加载：`load_phase2_settings()`（`src/config.py`）。
 
+**关浏览器、会话与接续做人机**：勿在其它文档重复写长文；**唯一叙事**见 [`design.md`](../design.md) §6.6。
 ### 5.2 phase-2 环境变量（`load_phase2_settings`）
 
 | 字段名 | 默认路径下必填 | 说明 |
@@ -202,15 +203,19 @@ phase-0 环境创建成功时，`data` 至少含：`container_code`、`environme
 | `SCREENSHOTS_DIR` | 否 | 默认 `screenshots` |
 | `LOG_DIR` | 否 | 含 `archive/`；phase-2 日志如 `logs/phase2.log` |
 
-### 5.3 可选：Press and hold 人机步骤
+### 5.3 Press and hold 人机步骤（接在填表之后）
 
 | 字段名 | 缺省 | 说明 |
 | ------ | ---- | ---- |
-| `PHASE2_TRY_HOLD_CHALLENGE` | 关 | `1`/`true`/`yes`/`on` 时尝试无障碍入口 + 长按 |
+| `PHASE2_TRY_HOLD_CHALLENGE` | **开**（变量未设置或空时） | `0`/`false`/`no`/`off` 关闭；`1`/`true`/`yes`/`on` 开启 |
 | `PHASE2_HOLD_AFTER_ACCESSIBLE_MS` | 2500 | 点小人与长按之间间隔 |
 | `PHASE2_HOLD_PRESS_DURATION_MS` | 4500 | 长按持续时间（毫秒） |
+| `PHASE2_HOLD_PREP_SHORT_SLEEP_MS` | 4000 | 填表结束后、检测人机页前**固定短睡**（毫秒）；`0` 关闭 |
+| `PHASE2_HOLD_PREP_POLL_MS` | 20000 | 短睡后**轮询**等待人机文案出现的上限（毫秒，不含短睡）；`0` 表示不轮询、仅短睡后检测一次 |
 
 实现模块：`src/ms_hold_challenge.py` → `try_ms_accessible_hold_challenge`。
+
+**`challenge_root`（成功/失败 `data`）**：`main` | `iframe` | `iframe_hsprotect`（URL 含 `hsprotect` 的 frame 优先解析）。长按失败时另含 `frame_count`、`hsprotect_frame_count`、`hsprotect_url_bases`（无 query 字符串，仅路径前缀摘要）。
 
 ### 5.4 phase-2 执行顺序（失败即停）
 
@@ -222,7 +227,7 @@ phase-0 环境创建成功时，`data` 至少含：`container_code`、`environme
 | 3 | `verify_page` | `src/verify_page.py` | URL 或 DOM 校验 |
 | 4 | 读 phase-1 留档 | `src/archive_store.py` | 无记录则 `step=phase2_user_profile` |
 | 5 | `apply_outlook_signup_profile` | `src/apply_signup_profile.py` | 填表与提交（约定范围内） |
-| 6（可选） | `try_ms_accessible_hold_challenge` | `src/ms_hold_challenge.py` | 由 `PHASE2_TRY_HOLD_CHALLENGE` 控制 |
+| 6 | `try_ms_accessible_hold_challenge` | `src/ms_hold_challenge.py` | 接在步骤 5 之后；默认执行，可用 `PHASE2_TRY_HOLD_CHALLENGE` 关闭 |
 
 编排：`src/pipeline.py` → `run_phase2_outlook_signup_page()`；入口：`src/main.py` → `--phase2` / `PHASE=2`。
 

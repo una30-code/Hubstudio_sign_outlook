@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,27 @@ def _try_screenshot(page: Any, screenshots_dir: Path, filename_prefix: str) -> s
         return None
 
 
+def _try_screenshot_timestamped(page: Any, screenshots_dir: Path, base_name: str) -> str | None:
+    """带 UTC 时间戳的文件名，避免多次跳过时互相覆盖。"""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return _try_screenshot(page, screenshots_dir, f"{base_name}_{stamp}")
+
+
+def _text_indicates_hold_challenge(text_lower: str) -> bool:
+    """与主文档、iframe 内正文共用的人机页特征（小写文本）。"""
+    if "press and hold" in text_lower:
+        return True
+    if "let's prove" in text_lower or "lets prove" in text_lower:
+        return True
+    if "prove you're human" in text_lower or "prove you’re human" in text_lower:
+        return True
+    if "prove you" in text_lower or "prove you're" in text_lower:
+        return True
+    if "按住" in text_lower or "长按" in text_lower:
+        return True
+    return False
+
+
 def _body_text_lower(root: Any, *, timeout_ms: int) -> str:
     try:
         return root.locator("body").inner_text(timeout=timeout_ms).lower()
@@ -34,27 +56,170 @@ def _body_text_lower(root: Any, *, timeout_ms: int) -> str:
 
 def _page_looks_like_press_hold_challenge(page: Any) -> bool:
     t = _body_text_lower(page, timeout_ms=3_000)
-    if "press and hold" in t or "prove you" in t or "prove you're" in t:
+    return _text_indicates_hold_challenge(t)
+
+
+def _frame_url_safe(fr: Any) -> str:
+    try:
+        return fr.url or ""
+    except Exception:
+        return ""
+
+
+def _is_main_frame(page: Any, fr: Any) -> bool:
+    try:
+        mf = page.main_frame
+        return mf is not None and fr == mf
+    except Exception:
+        return False
+
+
+def _human_challenge_detected_anywhere(page: Any) -> bool:
+    """prep 轮询用：任一文本人机特征或已出现 hsprotect 挑战 iframe 即视为「人机流程已开始」。"""
+    if _page_looks_like_press_hold_challenge(page):
         return True
-    if "按住" in t or "长按" in t:
-        return True
+    for fr in page.frames:
+        if _is_main_frame(page, fr):
+            continue
+        if "hsprotect" in _frame_url_safe(fr).lower():
+            return True
+        if _text_indicates_hold_challenge(_body_text_lower(fr, timeout_ms=2_500)):
+            return True
     return False
 
 
-def _find_challenge_root(page: Any) -> tuple[Any, str] | None:
-    """主文档或子 frame（微软验证常在 iframe）；未识别到则 None。"""
-    if _page_looks_like_press_hold_challenge(page):
-        return page, "main"
+def _ordered_challenge_roots(page: Any) -> list[tuple[Any, str]]:
+    """
+    交互用 root 候选顺序（路线 A）：
+    - hsprotect 相关 frame **逆序**（子 frame 常在 `page.frames` 中靠后，内层挑战页优先）
+    - 其余含人机正文的 iframe 逆序
+    - 最后主文档（避免主页面仅有说明文字却抢先于真实挑战 iframe）
+    """
+    non_main: list[Any] = []
     for fr in page.frames:
-        try:
-            if fr == page.main_frame:
-                continue
-        except Exception:
+        if _is_main_frame(page, fr):
             continue
-        t = _body_text_lower(fr, timeout_ms=2_500)
-        if "press and hold" in t or "prove you" in t or "按住" in t or "长按" in t:
-            return fr, "iframe"
+        non_main.append(fr)
+
+    tier_a = [f for f in non_main if "hsprotect" in _frame_url_safe(f).lower()]
+    tier_a_rev = list(reversed(tier_a))
+
+    seen_ids = {id(f) for f in tier_a}
+    tier_b: list[Any] = []
+    for f in non_main:
+        if id(f) in seen_ids:
+            continue
+        if _text_indicates_hold_challenge(_body_text_lower(f, timeout_ms=2_500)):
+            tier_b.append(f)
+            seen_ids.add(id(f))
+    # 主文档已像人机页但子 frame 尚未读出正文时，仍把同源 srcdoc 等挑战 iframe 排在 main 之前
+    if _page_looks_like_press_hold_challenge(page):
+        for f in non_main:
+            if id(f) in seen_ids:
+                continue
+            u = _frame_url_safe(f).lower()
+            if "about:srcdoc" in u or u.startswith("data:"):
+                tier_b.append(f)
+                seen_ids.add(id(f))
+        # 仅一个子 frame 时（常见单验证码 iframe），即使 url 尚未变为 about:srcdoc 也优先于 main
+        if len(non_main) == 1:
+            f0 = non_main[0]
+            if id(f0) not in seen_ids:
+                tier_b.append(f0)
+                seen_ids.add(id(f0))
+
+    tier_b_rev = list(reversed(tier_b))
+
+    out: list[tuple[Any, str]] = []
+    for f in tier_a_rev:
+        out.append((f, "iframe_hsprotect"))
+    for f in tier_b_rev:
+        out.append((f, "iframe"))
+    if _page_looks_like_press_hold_challenge(page):
+        out.append((page, "main"))
+    return out
+
+
+def _root_has_actionable_challenge(root: Any, *, timeout_ms: int) -> bool:
+    locs = _accessibility_entry_locators(root) + _press_hold_button_locators(root)
+    return _locator_list_any_visible(locs, timeout_ms=timeout_ms)
+
+
+def _find_challenge_root(
+    page: Any, *, actionable_timeout_ms: int = 2_500
+) -> tuple[Any, str] | None:
+    """
+    选择将要点击的 document（Page 或 Frame）：
+    1) 按 _ordered_challenge_roots 顺序，找「无障碍或 Press and hold 任一可见」的 root；
+    2) 否则回退到同顺序下「hsprotect URL 或正文仍像人机」的第一个 root。
+    """
+    ordered = _ordered_challenge_roots(page)
+    if not ordered:
+        return None
+
+    vis_timeout = max(500, min(3_000, actionable_timeout_ms))
+    for root, kind in ordered:
+        if _root_has_actionable_challenge(root, timeout_ms=vis_timeout):
+            return root, kind
+
+    for root, kind in ordered:
+        if kind == "main":
+            if _page_looks_like_press_hold_challenge(page):
+                return root, kind
+        else:
+            u = _frame_url_safe(root).lower()
+            if "hsprotect" in u:
+                return root, kind
+            if _text_indicates_hold_challenge(_body_text_lower(root, timeout_ms=2_500)):
+                return root, kind
     return None
+
+
+def _debug_challenge_frame_hints(page: Any) -> dict[str, Any]:
+    """失败时脱敏摘要（无完整 query，避免 session 泄漏）。"""
+    hs_bases: list[str] = []
+    for fr in page.frames:
+        u = _frame_url_safe(fr)
+        if "hsprotect" not in u.lower():
+            continue
+        base = u.split("?", 1)[0]
+        if len(base) > 96:
+            base = base[:96] + "…"
+        hs_bases.append(base)
+    return {
+        "frame_count": len(page.frames),
+        "hsprotect_frame_count": len(hs_bases),
+        "hsprotect_url_bases": hs_bases[:6],
+    }
+
+
+def _prep_wait_for_human_challenge_page(
+    page: Any,
+    *,
+    short_sleep_ms: int,
+    max_poll_ms: int,
+    log: logging.Logger,
+) -> None:
+    """
+    填表刚结束时人机卡片可能尚未渲染：先短睡再轮询，最多消耗 max_poll_ms 毫秒（不含短睡）。
+    """
+    if short_sleep_ms > 0:
+        log.info("[MS_HOLD] stage=prep action=sleep_ms value=%s", short_sleep_ms)
+        page.wait_for_timeout(short_sleep_ms)
+    if max_poll_ms <= 0:
+        return
+    interval = 400
+    elapsed = 0
+    while elapsed < max_poll_ms:
+        if _human_challenge_detected_anywhere(page):
+            log.info(
+                "[MS_HOLD] stage=prep result=detected poll_elapsed_ms=%s",
+                elapsed,
+            )
+            return
+        step = min(interval, max_poll_ms - elapsed)
+        page.wait_for_timeout(step)
+        elapsed += step
 
 
 def _escape_burst(page: Any) -> None:
@@ -85,12 +250,19 @@ def _aggressive_dismiss_password_save(
         "不用了",
         "Not now",
         "No thanks",
+        "不保存",
+        "否",
+        "跳过",
+        "以后再说",
+        "稍后",
+        "Skip",
     )
     role_patterns = (
         re.compile(r"一律不", re.I),
         re.compile(r"Never", re.I),
         re.compile(r"不用了", re.I),
         re.compile(r"No\s+thanks|Not\s+now", re.I),
+        re.compile(r"不保存|跳过|以后再说|稍后", re.I),
     )
 
     for round_i in range(3):
@@ -150,7 +322,7 @@ def _aggressive_dismiss_password_save(
         page.wait_for_timeout(500)
 
     log.warning(
-        "ms_hold_challenge: password-save UI may still be visible (not found in DOM or is native chrome)"
+        "[MS_HOLD] stage=password result=uncertain reason=not_in_dom_or_native_chrome"
     )
 
 
@@ -158,6 +330,8 @@ def _accessibility_entry_locators(root: Any) -> list[Any]:
     return [
         root.get_by_role("button", name=re.compile(r"Accessible challenge", re.I)),
         root.get_by_role("button", name=re.compile(r"accessible", re.I)),
+        root.locator('a[role="button"][aria-label*="Accessible challenge" i]'),
+        root.locator('a[role="button"][aria-label*="Accessible" i]'),
         root.locator('[aria-label*="Accessible challenge" i]'),
         root.locator('[aria-label*="Accessible" i]'),
         root.locator('[title*="Accessible challenge" i]'),
@@ -167,10 +341,18 @@ def _accessibility_entry_locators(root: Any) -> list[Any]:
     ]
 
 
+_HOLD_LABEL_RE = re.compile(r"press\s+(&|and)\s*hold", re.I)
+
+
 def _press_hold_button_locators(root: Any) -> list[Any]:
+    """含真实页面里的 <p>Press and hold</p> 与 Press & hold 变体。"""
     return [
+        root.get_by_role("button", name=_HOLD_LABEL_RE),
         root.get_by_role("button", name=re.compile(r"press\s+and\s+hold", re.I)),
-        root.locator("button").filter(has_text=re.compile(r"press\s+and\s+hold", re.I)),
+        root.locator("button").filter(has_text=_HOLD_LABEL_RE),
+        root.locator('[role="button"]').filter(has_text=_HOLD_LABEL_RE),
+        root.get_by_text(_HOLD_LABEL_RE),
+        root.locator("p").filter(has_text=_HOLD_LABEL_RE),
         root.get_by_role("button", name=re.compile(r"按住|长按", re.I)),
     ]
 
@@ -217,9 +399,12 @@ def try_ms_accessible_hold_challenge(
     chrome_password_prompt: str,
     screenshots_dir: Path,
     refind_challenge_root_before_hold: bool = True,
+    prep_short_sleep_ms: int = 2_000,
+    prep_poll_ms: int = 30_000,
 ) -> StepResult:
     """
     若当前为微软「Press and hold」类验证：先尽量关掉「保存密码」遮挡，再在主页面或 iframe 内点小人文、长按。
+    填表结束后可先短睡再轮询等人机页出现（prep_short_sleep_ms / prep_poll_ms）。
     """
 
     log = logging.getLogger(__name__)
@@ -229,23 +414,45 @@ def try_ms_accessible_hold_challenge(
         return step_result(
             success=True,
             step=step,
-            message="未启用人机验证自动化（PHASE2_TRY_HOLD_CHALLENGE）",
-            data={"skipped": True},
+            message="已关闭人机验证自动化（设置 PHASE2_TRY_HOLD_CHALLENGE=0/false/off 可保持关闭；默认未设置时为开启）",
+            data={"skipped": True, "skip_reason": "disabled"},
             error=None,
             screenshot_path=None,
         )
 
+    _prep_wait_for_human_challenge_page(
+        page,
+        short_sleep_ms=prep_short_sleep_ms,
+        max_poll_ms=prep_poll_ms,
+        log=log,
+    )
+
     found = _find_challenge_root(page)
     if found is None:
+        shot = _try_screenshot_timestamped(
+            page, screenshots_dir, "ms_hold_challenge_skipped"
+        )
+        url_snap = ""
+        try:
+            url_snap = page.url
+        except Exception:
+            pass
         return step_result(
             success=True,
             step=step,
-            message="当前页面未识别为 Press-and-hold 人机验证，已跳过",
-            data={"skipped": True},
+            message="人机验证：短暂等待与轮询后仍未识别到人机页（页面可能仍在加载或文案已改版），已跳过",
+            data={
+                "skipped": True,
+                "skip_reason": "not_detected_after_wait",
+                "prep_short_sleep_ms": prep_short_sleep_ms,
+                "prep_poll_ms": prep_poll_ms,
+                "page_url": url_snap,
+            },
             error=None,
-            screenshot_path=None,
+            screenshot_path=shot,
         )
     root, root_kind = found
+    log.info("[MS_HOLD] stage=resolve_root kind=%s", root_kind)
 
     t = max(2_000, min(form_step_timeout_ms, 60_000))
     hold_ms = max(1_500, min(hold_press_ms, 25_000))
@@ -264,7 +471,7 @@ def try_ms_accessible_hold_challenge(
             if ok:
                 clicked_access = True
                 access_used_force = used_f
-                log.info("ms_hold_challenge: clicked accessibility entry (root=%s)", root_kind)
+                log.info("[MS_HOLD] stage=accessibility result=clicked root=%s", root_kind)
                 break
         if not clicked_access:
             for loc in _accessibility_entry_locators(root):
@@ -273,14 +480,14 @@ def try_ms_accessible_hold_challenge(
                     clicked_access = True
                     access_used_force = used_f
                     log.info(
-                        "ms_hold_challenge: clicked accessibility entry (force, root=%s)",
+                        "[MS_HOLD] stage=accessibility result=clicked_force root=%s",
                         root_kind,
                     )
                     break
 
         if not clicked_access:
             log.warning(
-                "ms_hold_challenge: accessibility control not found (root=%s), try hold only",
+                "[MS_HOLD] stage=accessibility result=skip reason=no_control root=%s",
                 root_kind,
             )
 
@@ -290,7 +497,15 @@ def try_ms_accessible_hold_challenge(
         if refind_challenge_root_before_hold:
             found2 = _find_challenge_root(page)
             if found2 is not None:
-                root, root_kind = found2
+                new_root, new_kind = found2
+                # 主文档常残留「证明你是人类」类文案，refind 勿把已锁定的挑战 iframe 降回 main
+                if root_kind in ("iframe", "iframe_hsprotect") and new_kind == "main":
+                    log.info(
+                        "[MS_HOLD] stage=refind result=keep kind=%s (skip main)",
+                        root_kind,
+                    )
+                else:
+                    root, root_kind = new_root, new_kind
 
         hold_ok = False
         hold_used_force = False
@@ -299,7 +514,11 @@ def try_ms_accessible_hold_challenge(
             if ok:
                 hold_ok = True
                 hold_used_force = used_f
-                log.info("ms_hold_challenge: press-and-hold (root=%s, delay_ms=%s)", root_kind, hold_ms)
+                log.info(
+                    "[MS_HOLD] stage=hold result=clicked root=%s delay_ms=%s",
+                    root_kind,
+                    hold_ms,
+                )
                 break
         if not hold_ok:
             for loc in _press_hold_button_locators(root):
@@ -308,7 +527,7 @@ def try_ms_accessible_hold_challenge(
                     hold_ok = True
                     hold_used_force = used_f
                     log.info(
-                        "ms_hold_challenge: press-and-hold force (root=%s, delay_ms=%s)",
+                        "[MS_HOLD] stage=hold result=clicked_force root=%s delay_ms=%s",
                         root_kind,
                         hold_ms,
                     )
@@ -325,6 +544,7 @@ def try_ms_accessible_hold_challenge(
                     "after_accessible_wait_ms": wait_after,
                     "challenge_root": root_kind,
                     "accessibility_used_force": access_used_force,
+                    **_debug_challenge_frame_hints(page),
                 },
                 error="PressHoldButtonNotFound",
                 screenshot_path=shot,
@@ -502,7 +722,14 @@ def press_ms_challenge_hold_only(
         if refind_root_before_press:
             found2 = _find_challenge_root(page)
             if found2 is not None:
-                root, root_kind = found2
+                new_root, new_kind = found2
+                if root_kind in ("iframe", "iframe_hsprotect") and new_kind == "main":
+                    log.info(
+                        "ms_hold_step_press: refind keep iframe kind=%s (skip main)",
+                        root_kind,
+                    )
+                else:
+                    root, root_kind = new_root, new_kind
 
         hold_ok = False
         hold_used_force = False

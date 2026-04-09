@@ -281,12 +281,34 @@ DEFAULT_PHASE2_HOLD_AFTER_ACCESSIBLE_MS = 2_500
 DEFAULT_PHASE2_HOLD_PRESS_DURATION_MS = 4_500
 # 「按住按钮」流程：长按前是否重新查找 root 元素（True 可避免动态刷新导致的 ElementHandle 失效）
 DEFAULT_PHASE2_HOLD_REFIND_ROOT_BEFORE_PRESS = True
+# 填表成功后、检测人机页前：先固定短睡（毫秒），再给下方轮询上限（毫秒）等人机文案出现
+DEFAULT_PHASE2_HOLD_PREP_SHORT_SLEEP_MS = 4_000
+DEFAULT_PHASE2_HOLD_PREP_POLL_MS = 20_000
 
 
 def _env_truthy(raw: str | None) -> bool:
     if raw is None or not str(raw).strip():
         return False
     return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _phase2_try_hold_challenge_from_env(raw: str | None) -> bool:
+    """
+    PHASE2_TRY_HOLD_CHALLENGE：未设置或空串时默认 True，使 phase-2 在填表成功后继续尝试人机步骤。
+    # 作用：说明本环境变量用于判断是否开启 PHASE2_TRY_HOLD_CHALLENGE 标签（即：是否在 phase-2 注册流程成功后继续尝试人机挑战）。
+    # 判断标准：如果值为 "0"、"false"、"no"、"off"（忽略大小写和空格），则关闭人机挑战相关流程（返回 False）；
+    # 如果值为 "1"、"true"、"yes"、"on"，则开启人机挑战流程（返回 True）。
+    # 该环境变量为空或未设置时，默认开启（返回 True），避免误关功能。
+    """
+
+    if raw is None or not str(raw).strip():
+        return True
+    s = str(raw).strip().lower()
+    if s in ("0", "false", "no", "off"):
+        return False
+    if s in ("1", "true", "yes", "on"):
+        return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -343,6 +365,8 @@ class Phase2Settings:
     phase2_hold_after_accessible_ms: int
     phase2_hold_press_duration_ms: int
     phase2_hold_refind_root_before_press: bool
+    phase2_hold_prep_short_sleep_ms: int
+    phase2_hold_prep_poll_ms: int
     screenshots_dir: Path
     log_dir: Path
     cdp_url_override: str | None
@@ -378,7 +402,9 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
     chrome_password_prompt = _chrome_password_prompt_mode(
         environ.get("PHASE2_CHROME_PASSWORD_PROMPT")
     )
-    phase2_try_hold_challenge = _env_truthy(environ.get("PHASE2_TRY_HOLD_CHALLENGE"))
+    phase2_try_hold_challenge = _phase2_try_hold_challenge_from_env(
+        environ.get("PHASE2_TRY_HOLD_CHALLENGE")
+    )
     phase2_hold_after_accessible_ms = max(
         0,
         _int_with_default(
@@ -401,6 +427,21 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
         phase2_hold_refind_root_before_press = _env_truthy(_ref_raw)
     else:
         phase2_hold_refind_root_before_press = DEFAULT_PHASE2_HOLD_REFIND_ROOT_BEFORE_PRESS
+
+    phase2_hold_prep_short_sleep_ms = max(
+        0,
+        _int_with_default(
+            environ.get("PHASE2_HOLD_PREP_SHORT_SLEEP_MS"),
+            DEFAULT_PHASE2_HOLD_PREP_SHORT_SLEEP_MS,
+        ),
+    )
+    phase2_hold_prep_poll_ms = max(
+        0,
+        _int_with_default(
+            environ.get("PHASE2_HOLD_PREP_POLL_MS"),
+            DEFAULT_PHASE2_HOLD_PREP_POLL_MS,
+        ),
+    )
 
     cdp_override = environ.get("HUBSTUDIO_CDP_URL", "").strip() or None
     api_base = environ.get("HUBSTUDIO_API_BASE", "").strip()
@@ -428,6 +469,8 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
             phase2_hold_after_accessible_ms=phase2_hold_after_accessible_ms,
             phase2_hold_press_duration_ms=phase2_hold_press_duration_ms,
             phase2_hold_refind_root_before_press=phase2_hold_refind_root_before_press,
+            phase2_hold_prep_short_sleep_ms=phase2_hold_prep_short_sleep_ms,
+            phase2_hold_prep_poll_ms=phase2_hold_prep_poll_ms,
             screenshots_dir=screenshots_dir,
             log_dir=log_dir,
             cdp_url_override=cdp_override,
@@ -457,6 +500,8 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
         phase2_hold_after_accessible_ms=phase2_hold_after_accessible_ms,
         phase2_hold_press_duration_ms=phase2_hold_press_duration_ms,
         phase2_hold_refind_root_before_press=phase2_hold_refind_root_before_press,
+        phase2_hold_prep_short_sleep_ms=phase2_hold_prep_short_sleep_ms,
+        phase2_hold_prep_poll_ms=phase2_hold_prep_poll_ms,
         screenshots_dir=screenshots_dir,
         log_dir=log_dir,
         cdp_url_override=None,

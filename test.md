@@ -1,8 +1,9 @@
 # 测试说明（Test）
 
 > 测试策略、用例、通过条件与产物位置。  
-> **当前范围**：`requirements.md` **phase-0**（Hubstudio 环境创建） + **phase-1**（Outlook 注册用用户信息生成） + **phase-2**（连接 CDP + 打开 Outlook 注册页 + DOM 校验）。  
-> 用例与需求章节、源码、任务 ID 的对照见 `docs/codemap.md`。
+> **当前范围**：`requirements.md` **phase-0**（Hubstudio 环境创建） + **phase-1**（Outlook 注册用用户信息生成） + **phase-2**（连接 CDP + 打开 Outlook 注册页 + DOM 校验 + 填表后默认人机尝试）。  
+> 用例与需求章节、源码、任务 ID 的对照见 `docs/codemap.md`。  
+
 
 ## 1. 测试类型
 
@@ -80,5 +81,6 @@
 | 2026-03-20 | 旧版：对齐 Phase 1（CDP / 注册页）                          |
 | 2026-04-02 | 重写为 phase-0：环境创建、独立脚本、与 `tasks.md` T-007/T-008 一致 |
 | 2026-04-08 | 新增 **TC-P2-006**：`tests/test_ms_hold_challenge.py`（人机页检测 Mock + Playwright 模拟页长按） |
+| 2026-04-09 | phase-2 默认在填表后尝试人机； |
 
 
