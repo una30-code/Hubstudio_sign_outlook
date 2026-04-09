@@ -207,6 +207,7 @@
   },
   "active": "3c3e60eced98d9e7",
   "lastOpenFiles": [
+    "tools/hubstudio_cdp_probe/README copy.md",
     "tools/hubstudio_cdp_probe/output/probe_20260408T103647Z.jsonl",
     "tools/hubstudio_cdp_probe/output",
     "tools/hubstudio_cdp_probe/run_probe.py",
@@ -222,7 +223,6 @@
     "requirements.md",
     "src/__pycache__/start_hubstudio_browser.cpython-310.pyc",
     "tests/__pycache__/test_archive_container.cpython-310-pytest-9.0.2.pyc",
-    "tests/test_archive_container.py",
     "prompts/feature_dev_template.md",
     "prompts/automation_dev_template.md",
     "00-save.md",
