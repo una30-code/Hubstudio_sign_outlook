@@ -101,6 +101,12 @@ def main() -> int:
     if phase == 1:
         seed = _parse_user_gen_seed()
         log.info("Phase-1 启动：生成 Outlook 注册用用户信息")
+        if seed is not None:
+            log.info(
+                "Phase-1 使用固定 USER_GEN_SEED=%s，每次生成的人物会相同（复现/测试用）；"
+                "需要每人不同请从 .env 去掉或注释 USER_GEN_SEED",
+                seed,
+            )
         result, _page = run_phase1_user_profile_generation(seed=seed)
     elif phase == 2:
         log.info(

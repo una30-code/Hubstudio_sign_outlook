@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 if __package__ in {None, ""}:
     from step_result import StepResult, step_result
@@ -23,6 +25,35 @@ def _try_screenshot(page: Any, screenshots_dir: Path, filename_prefix: str) -> s
         return None
 
 
+def _navigation_aborted(exc: BaseException) -> bool:
+    return "err_aborted" in f"{exc}".lower()
+
+
+def _current_url_safe(page: Any) -> str:
+    try:
+        return getattr(page, "url", "") or ""
+    except Exception:
+        return ""
+
+
+def _likely_reached_target(page_url: str, target_url: str) -> bool:
+    """ERR_ABORTED 后主文档可能已停在目标或微软注册/ OAuth 链路上。"""
+    pu = (page_url or "").lower()
+    if not pu or pu.startswith("about:"):
+        return False
+    try:
+        host = (urlparse(target_url).hostname or "").lower()
+    except Exception:
+        host = ""
+    if host and host in pu:
+        return True
+    if "signup.live.com" in pu:
+        return True
+    if "login.live.com" in pu and ("signup" in pu or "oauth" in pu):
+        return True
+    return False
+
+
 def open_signup_page(
     page: Any,
     url: str,
@@ -34,10 +65,42 @@ def open_signup_page(
     log = logging.getLogger(__name__)
     step = "open_signup_page"
     try:
-        log.info("%s: goto %s (wait_until=load, timeout_ms=%s)", step, url, timeout_ms)
-        # load 晚于 domcontentloaded，适合代理/指纹环境冷启动后页面资源仍在拉取的情况
-        page.goto(url, timeout=timeout_ms, wait_until="load")
-        current_url = getattr(page, "url", url)
+        # 首次 CDP 连上时 wait_until=load 易与重定向/二次导航竞争，触发 net::ERR_ABORTED
+        # 而页面实际已渲染。先用 domcontentloaded，再尽力等 load（不 satisfied 不判失败）。
+        log.info(
+            "%s: goto %s (wait_until=domcontentloaded, timeout_ms=%s)",
+            step,
+            url,
+            timeout_ms,
+        )
+        for attempt in range(2):
+            try:
+                page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+                break
+            except Exception as exc:
+                if not _navigation_aborted(exc):
+                    raise
+                if _likely_reached_target(_current_url_safe(page), url):
+                    log.info(
+                        "%s: goto ERR_ABORTED but URL already usable: %s",
+                        step,
+                        _current_url_safe(page),
+                    )
+                    break
+                if attempt == 0:
+                    log.info("%s: goto ERR_ABORTED; retry once after short delay", step)
+                    time.sleep(0.6)
+                else:
+                    raise
+        try:
+            page.wait_for_load_state("load", timeout=min(timeout_ms, 120_000))
+        except Exception as load_exc:
+            log.info(
+                "%s: wait_for_load_state(load) skipped: %s",
+                step,
+                load_exc,
+            )
+        current_url = _current_url_safe(page) or url
         return step_result(
             success=True,
             step=step,

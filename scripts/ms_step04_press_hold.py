@@ -47,6 +47,7 @@ def main() -> int:
             chrome_password_prompt=p2.chrome_password_prompt,
             screenshots_dir=p2.screenshots_dir,
             refind_root_before_press=p2.phase2_hold_refind_root_before_press,
+            locator_probe_timeout_ms=p2.phase2_hold_locator_probe_ms,
         )
         log.info("结果: %s", r)
         return 0 if r["success"] else 1

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,15 @@ if __package__ in {None, ""}:
 else:
     from .apply_signup_profile import _try_chrome_password_prompt
     from .step_result import StepResult, step_result
+
+
+def _ms_since(t0: float) -> tuple[int, float]:
+    t1 = time.perf_counter()
+    return int((t1 - t0) * 1000), t1
+
+
+def _log_timing_segment(log: logging.Logger, segment: str, elapsed_ms: int) -> None:
+    log.info("[MS_HOLD] stage=timing segment=%s elapsed_ms=%s", segment, elapsed_ms)
 
 
 def _try_screenshot(page: Any, screenshots_dir: Path, filename_prefix: str) -> str | None:
@@ -146,7 +156,10 @@ def _root_has_actionable_challenge(root: Any, *, timeout_ms: int) -> bool:
 
 
 def _find_challenge_root(
-    page: Any, *, actionable_timeout_ms: int = 2_500
+    page: Any,
+    *,
+    actionable_timeout_ms: int = 2_500,
+    list_visible_timeout_ms: int | None = None,
 ) -> tuple[Any, str] | None:
     """
     选择将要点击的 document（Page 或 Frame）：
@@ -157,9 +170,14 @@ def _find_challenge_root(
     if not ordered:
         return None
 
-    vis_timeout = max(500, min(3_000, actionable_timeout_ms))
+    list_cap = (
+        list_visible_timeout_ms
+        if list_visible_timeout_ms is not None
+        else max(500, min(3_000, actionable_timeout_ms))
+    )
+    list_cap = max(400, min(8_000, list_cap))
     for root, kind in ordered:
-        if _root_has_actionable_challenge(root, timeout_ms=vis_timeout):
+        if _root_has_actionable_challenge(root, timeout_ms=list_cap):
             return root, kind
 
     for root, kind in ordered:
@@ -327,26 +345,36 @@ def _aggressive_dismiss_password_save(
 
 
 def _accessibility_entry_locators(root: Any) -> list[Any]:
+    """与 hsprotect 内页一致：优先精确匹配 `a[aria-label=Accessible challenge]`，宽泛规则置后。"""
     return [
-        root.get_by_role("button", name=re.compile(r"Accessible challenge", re.I)),
-        root.get_by_role("button", name=re.compile(r"accessible", re.I)),
+        root.locator('a[role="button"][aria-label="Accessible challenge"]'),
+        root.get_by_role("button", name=re.compile(r"^Accessible challenge$", re.I)),
         root.locator('a[role="button"][aria-label*="Accessible challenge" i]'),
-        root.locator('a[role="button"][aria-label*="Accessible" i]'),
         root.locator('[aria-label*="Accessible challenge" i]'),
+        root.get_by_role("button", name=re.compile(r"Accessible challenge", re.I)),
+        root.locator('a[role="button"][aria-label*="Accessible" i]'),
         root.locator('[aria-label*="Accessible" i]'),
         root.locator('[title*="Accessible challenge" i]'),
         root.locator('[title*="Accessible" i]'),
         root.locator('button[aria-label*="accessibility" i]'),
         root.locator("button").filter(has_text=re.compile(r"accessible|无障碍", re.I)),
+        root.get_by_role("button", name=re.compile(r"\baccessible\b", re.I)),
     ]
 
 
 _HOLD_LABEL_RE = re.compile(r"press\s+(&|and)\s*hold", re.I)
+# 外层 div role=button aria-label="Press & Hold Human Challenge"；勿用 `.?` 只匹配一字节，否则漏掉「Press and hold」
+_PRESS_HOLD_WIDGET_RE = re.compile(
+    r"Press\s+(&|and)\s*hold|Press\s*[&＆]\s*Hold|Hold\s+Human\s+Challenge",
+    re.I,
+)
 
 
 def _press_hold_button_locators(root: Any) -> list[Any]:
-    """含真实页面里的 <p>Press and hold</p> 与 Press & hold 变体。"""
+    """含 Press & Hold Human Challenge 整块按钮、<p>Press and hold</p> 等。"""
     return [
+        root.get_by_role("button", name=_PRESS_HOLD_WIDGET_RE),
+        root.locator('[role="button"][aria-label*="Hold Human Challenge"]'),
         root.get_by_role("button", name=_HOLD_LABEL_RE),
         root.get_by_role("button", name=re.compile(r"press\s+and\s+hold", re.I)),
         root.locator("button").filter(has_text=_HOLD_LABEL_RE),
@@ -368,18 +396,47 @@ def _locator_list_any_visible(locators: list[Any], *, timeout_ms: int) -> bool:
     return False
 
 
+def _warmup_viewport_click(page: Any, *, settle_ms: int, log: logging.Logger) -> None:
+    """
+    人机子流程前在**顶层 Page 视口**做一次轻点（不切换 frame），模拟「先点页面再找控件」。
+    坐标取视口左下偏上，降低点到「保存密码」类条（多在右上）的概率；失败则忽略。
+    """
+    try:
+        vp = page.viewport_size
+        if vp and vp.get("width") and vp.get("height"):
+            w, h = int(vp["width"]), int(vp["height"])
+            x = max(16, min(w - 16, w // 6))
+            y = max(16, min(h - 16, int(h * 0.72)))
+        else:
+            x, y = 80, 520
+        page.mouse.click(x, y)
+        log.info("[MS_HOLD] stage=warmup result=viewport_click x=%s y=%s", x, y)
+    except Exception as exc:
+        log.debug("warmup viewport click skipped: %s", exc)
+    sm = max(0, min(2_000, settle_ms))
+    if sm:
+        page.wait_for_timeout(sm)
+
+
 def _click_locator_first(
     loc: Any,
     *,
     timeout_ms: int,
     delay_ms: int | None = None,
     force: bool = False,
+    visibility_timeout_ms: int | None = None,
 ) -> tuple[bool, bool]:
-    """返回 (是否点击成功, 本次是否使用 force 参数)。"""
+    """返回 (是否点击成功, 本次是否使用 force 参数)。
 
+    visibility_timeout_ms：仅用于 wait_for(visible) 的探测上限；点击仍使用 timeout_ms。
+    """
     try:
         el = loc.first
-        el.wait_for(state="visible", timeout=min(12_000, timeout_ms))
+        if visibility_timeout_ms is not None:
+            vis_cap = max(400, min(visibility_timeout_ms, timeout_ms))
+        else:
+            vis_cap = min(12_000, timeout_ms)
+        el.wait_for(state="visible", timeout=vis_cap)
         if delay_ms is not None:
             el.click(delay=delay_ms, timeout=timeout_ms, force=force)
         else:
@@ -401,10 +458,15 @@ def try_ms_accessible_hold_challenge(
     refind_challenge_root_before_hold: bool = True,
     prep_short_sleep_ms: int = 2_000,
     prep_poll_ms: int = 30_000,
+    warmup_viewport_click: bool = True,
+    warmup_settle_ms: int = 280,
+    locator_probe_timeout_ms: int = 2_000,
 ) -> StepResult:
     """
     若当前为微软「Press and hold」类验证：先尽量关掉「保存密码」遮挡，再在主页面或 iframe 内点小人文、长按。
     填表结束后可先短睡再轮询等人机页出现（prep_short_sleep_ms / prep_poll_ms）。
+    进入本步且关完密码条后，默认在顶层视口做一次轻点（warmup_viewport_click）再点小人文。
+    locator_probe_timeout_ms：各候选 locator 的 wait_for(visible) 上限；点击仍使用 form_step_timeout_ms。
     """
 
     log = logging.getLogger(__name__)
@@ -420,14 +482,25 @@ def try_ms_accessible_hold_challenge(
             screenshot_path=None,
         )
 
+    probe_v = max(400, min(8_000, locator_probe_timeout_ms))
+    timing_ms: dict[str, int] = {}
+    t_mark = time.perf_counter()
+
     _prep_wait_for_human_challenge_page(
         page,
         short_sleep_ms=prep_short_sleep_ms,
         max_poll_ms=prep_poll_ms,
         log=log,
     )
+    prep_elapsed, t_mark = _ms_since(t_mark)
+    timing_ms["prep_ms"] = prep_elapsed
+    _log_timing_segment(log, "prep", prep_elapsed)
 
-    found = _find_challenge_root(page)
+    found = _find_challenge_root(page, list_visible_timeout_ms=probe_v)
+    resolve_elapsed, t_mark = _ms_since(t_mark)
+    timing_ms["resolve_root_ms"] = resolve_elapsed
+    _log_timing_segment(log, "resolve_root", resolve_elapsed)
+
     if found is None:
         shot = _try_screenshot_timestamped(
             page, screenshots_dir, "ms_hold_challenge_skipped"
@@ -447,6 +520,7 @@ def try_ms_accessible_hold_challenge(
                 "prep_short_sleep_ms": prep_short_sleep_ms,
                 "prep_poll_ms": prep_poll_ms,
                 "page_url": url_snap,
+                "timing_ms": timing_ms,
             },
             error=None,
             screenshot_path=shot,
@@ -463,11 +537,26 @@ def try_ms_accessible_hold_challenge(
         mode = chrome_password_prompt if chrome_password_prompt in {"save", "dismiss"} else "dismiss"
         _try_chrome_password_prompt(page, mode, timeout_ms=t, log=log)
         _aggressive_dismiss_password_save(page, timeout_ms=t, log=log)
+        pwd_elapsed, t_mark = _ms_since(t_mark)
+        timing_ms["password_dismiss_ms"] = pwd_elapsed
+        _log_timing_segment(log, "password_dismiss", pwd_elapsed)
+
+        if warmup_viewport_click:
+            _warmup_viewport_click(page, settle_ms=warmup_settle_ms, log=log)
+        warm_elapsed, t_mark = _ms_since(t_mark)
+        timing_ms["warmup_ms"] = warm_elapsed
+        _log_timing_segment(log, "warmup", warm_elapsed)
 
         clicked_access = False
         access_used_force = False
+        t_acc = time.perf_counter()
         for loc in _accessibility_entry_locators(root):
-            ok, used_f = _click_locator_first(loc, timeout_ms=t, force=False)
+            ok, used_f = _click_locator_first(
+                loc,
+                timeout_ms=t,
+                force=False,
+                visibility_timeout_ms=probe_v,
+            )
             if ok:
                 clicked_access = True
                 access_used_force = used_f
@@ -475,7 +564,12 @@ def try_ms_accessible_hold_challenge(
                 break
         if not clicked_access:
             for loc in _accessibility_entry_locators(root):
-                ok, used_f = _click_locator_first(loc, timeout_ms=t, force=True)
+                ok, used_f = _click_locator_first(
+                    loc,
+                    timeout_ms=t,
+                    force=True,
+                    visibility_timeout_ms=probe_v,
+                )
                 if ok:
                     clicked_access = True
                     access_used_force = used_f
@@ -484,6 +578,9 @@ def try_ms_accessible_hold_challenge(
                         root_kind,
                     )
                     break
+        acc_elapsed, t_mark = _ms_since(t_acc)
+        timing_ms["accessibility_ms"] = acc_elapsed
+        _log_timing_segment(log, "accessibility", acc_elapsed)
 
         if not clicked_access:
             log.warning(
@@ -491,11 +588,16 @@ def try_ms_accessible_hold_challenge(
                 root_kind,
             )
 
+        t_wa = time.perf_counter()
         if wait_after > 0:
             page.wait_for_timeout(wait_after)
+        wa_elapsed, t_mark = _ms_since(t_wa)
+        timing_ms["wait_after_accessible_ms"] = wa_elapsed
+        _log_timing_segment(log, "wait_after_accessible", wa_elapsed)
 
+        t_ref = time.perf_counter()
         if refind_challenge_root_before_hold:
-            found2 = _find_challenge_root(page)
+            found2 = _find_challenge_root(page, list_visible_timeout_ms=probe_v)
             if found2 is not None:
                 new_root, new_kind = found2
                 # 主文档常残留「证明你是人类」类文案，refind 勿把已锁定的挑战 iframe 降回 main
@@ -506,11 +608,21 @@ def try_ms_accessible_hold_challenge(
                     )
                 else:
                     root, root_kind = new_root, new_kind
+        ref_elapsed, t_mark = _ms_since(t_ref)
+        timing_ms["refind_ms"] = ref_elapsed
+        _log_timing_segment(log, "refind", ref_elapsed)
 
         hold_ok = False
         hold_used_force = False
+        t_hold = time.perf_counter()
         for loc in _press_hold_button_locators(root):
-            ok, used_f = _click_locator_first(loc, timeout_ms=t, delay_ms=hold_ms, force=False)
+            ok, used_f = _click_locator_first(
+                loc,
+                timeout_ms=t,
+                delay_ms=hold_ms,
+                force=False,
+                visibility_timeout_ms=probe_v,
+            )
             if ok:
                 hold_ok = True
                 hold_used_force = used_f
@@ -522,7 +634,13 @@ def try_ms_accessible_hold_challenge(
                 break
         if not hold_ok:
             for loc in _press_hold_button_locators(root):
-                ok, used_f = _click_locator_first(loc, timeout_ms=t, delay_ms=hold_ms, force=True)
+                ok, used_f = _click_locator_first(
+                    loc,
+                    timeout_ms=t,
+                    delay_ms=hold_ms,
+                    force=True,
+                    visibility_timeout_ms=probe_v,
+                )
                 if ok:
                     hold_ok = True
                     hold_used_force = used_f
@@ -532,6 +650,9 @@ def try_ms_accessible_hold_challenge(
                         hold_ms,
                     )
                     break
+        hold_elapsed, t_mark = _ms_since(t_hold)
+        timing_ms["hold_ms"] = hold_elapsed
+        _log_timing_segment(log, "hold", hold_elapsed)
 
         if not hold_ok:
             shot = _try_screenshot(page, screenshots_dir, step)
@@ -544,6 +665,8 @@ def try_ms_accessible_hold_challenge(
                     "after_accessible_wait_ms": wait_after,
                     "challenge_root": root_kind,
                     "accessibility_used_force": access_used_force,
+                    "timing_ms": timing_ms,
+                    "locator_probe_timeout_ms": probe_v,
                     **_debug_challenge_frame_hints(page),
                 },
                 error="PressHoldButtonNotFound",
@@ -556,12 +679,15 @@ def try_ms_accessible_hold_challenge(
             message="人机验证：已尝试无障碍入口与长按提交",
             data={
                 "skipped": False,
+                "warmup_viewport_click": warmup_viewport_click,
                 "accessibility_clicked": clicked_access,
                 "accessibility_used_force": access_used_force,
                 "hold_used_force": hold_used_force,
                 "hold_press_ms": hold_ms,
                 "after_accessible_wait_ms": wait_after,
                 "challenge_root": root_kind,
+                "timing_ms": timing_ms,
+                "locator_probe_timeout_ms": probe_v,
             },
             error=None,
             screenshot_path=None,
@@ -572,7 +698,7 @@ def try_ms_accessible_hold_challenge(
             success=False,
             step=step,
             message="人机验证步骤异常",
-            data={},
+            data={"timing_ms": timing_ms, "locator_probe_timeout_ms": probe_v},
             error=f"{type(exc).__name__}: {exc}",
             screenshot_path=shot,
         )
@@ -585,13 +711,15 @@ def click_ms_challenge_accessibility_only(
     chrome_password_prompt: str,
     screenshots_dir: Path,
     noop_if_accessibility_missing: bool = False,
+    locator_probe_timeout_ms: int = 2_000,
 ) -> StepResult:
     """仅点击「无障碍 / Accessible challenge」入口（分步脚本；不执行长按）。"""
 
     log = logging.getLogger(__name__)
     step = "ms_hold_step_accessibility"
+    probe_v = max(400, min(8_000, locator_probe_timeout_ms))
 
-    found = _find_challenge_root(page)
+    found = _find_challenge_root(page, list_visible_timeout_ms=probe_v)
     if found is None:
         return step_result(
             success=False,
@@ -611,10 +739,10 @@ def click_ms_challenge_accessibility_only(
 
         if noop_if_accessibility_missing:
             acc_vis = _locator_list_any_visible(
-                _accessibility_entry_locators(root), timeout_ms=t
+                _accessibility_entry_locators(root), timeout_ms=probe_v
             )
             hold_vis = _locator_list_any_visible(
-                _press_hold_button_locators(root), timeout_ms=t
+                _press_hold_button_locators(root), timeout_ms=probe_v
             )
             if not acc_vis and hold_vis:
                 log.info(
@@ -637,7 +765,9 @@ def click_ms_challenge_accessibility_only(
         clicked = False
         used_force = False
         for loc in _accessibility_entry_locators(root):
-            ok, used_f = _click_locator_first(loc, timeout_ms=t, force=False)
+            ok, used_f = _click_locator_first(
+                loc, timeout_ms=t, force=False, visibility_timeout_ms=probe_v
+            )
             if ok:
                 clicked = True
                 used_force = used_f
@@ -645,7 +775,9 @@ def click_ms_challenge_accessibility_only(
                 break
         if not clicked:
             for loc in _accessibility_entry_locators(root):
-                ok, used_f = _click_locator_first(loc, timeout_ms=t, force=True)
+                ok, used_f = _click_locator_first(
+                    loc, timeout_ms=t, force=True, visibility_timeout_ms=probe_v
+                )
                 if ok:
                     clicked = True
                     used_force = used_f
@@ -694,13 +826,15 @@ def press_ms_challenge_hold_only(
     chrome_password_prompt: str,
     screenshots_dir: Path,
     refind_root_before_press: bool = True,
+    locator_probe_timeout_ms: int = 2_000,
 ) -> StepResult:
     """仅对「Press and hold」主按钮执行长按点击（分步脚本）。"""
 
     log = logging.getLogger(__name__)
     step = "ms_hold_step_press"
+    probe_v = max(400, min(8_000, locator_probe_timeout_ms))
 
-    found = _find_challenge_root(page)
+    found = _find_challenge_root(page, list_visible_timeout_ms=probe_v)
     if found is None:
         return step_result(
             success=False,
@@ -720,7 +854,7 @@ def press_ms_challenge_hold_only(
         _aggressive_dismiss_password_save(page, timeout_ms=t, log=log)
 
         if refind_root_before_press:
-            found2 = _find_challenge_root(page)
+            found2 = _find_challenge_root(page, list_visible_timeout_ms=probe_v)
             if found2 is not None:
                 new_root, new_kind = found2
                 if root_kind in ("iframe", "iframe_hsprotect") and new_kind == "main":
@@ -734,7 +868,13 @@ def press_ms_challenge_hold_only(
         hold_ok = False
         hold_used_force = False
         for loc in _press_hold_button_locators(root):
-            ok, used_f = _click_locator_first(loc, timeout_ms=t, delay_ms=hold_ms, force=False)
+            ok, used_f = _click_locator_first(
+                loc,
+                timeout_ms=t,
+                delay_ms=hold_ms,
+                force=False,
+                visibility_timeout_ms=probe_v,
+            )
             if ok:
                 hold_ok = True
                 hold_used_force = used_f
@@ -746,7 +886,13 @@ def press_ms_challenge_hold_only(
                 break
         if not hold_ok:
             for loc in _press_hold_button_locators(root):
-                ok, used_f = _click_locator_first(loc, timeout_ms=t, delay_ms=hold_ms, force=True)
+                ok, used_f = _click_locator_first(
+                    loc,
+                    timeout_ms=t,
+                    delay_ms=hold_ms,
+                    force=True,
+                    visibility_timeout_ms=probe_v,
+                )
                 if ok:
                     hold_ok = True
                     hold_used_force = used_f
@@ -763,7 +909,11 @@ def press_ms_challenge_hold_only(
                 success=False,
                 step=step,
                 message="未找到或未命中 Press and hold 按钮",
-                data={"hold_press_ms": hold_ms, "challenge_root": root_kind},
+                data={
+                    "hold_press_ms": hold_ms,
+                    "challenge_root": root_kind,
+                    "locator_probe_timeout_ms": probe_v,
+                },
                 error="PressHoldButtonNotFound",
                 screenshot_path=shot,
             )
@@ -800,6 +950,7 @@ def wait_ms_challenge_step03(
     until_press_timeout_ms: int,
     form_step_timeout_ms: int,
     screenshots_dir: Path,
+    locator_probe_timeout_ms: int = 2_000,
 ) -> StepResult:
     """
     分步脚本 Step03：sleep 固定毫秒，或轮询直到「Press and hold」在挑战根内可见。
@@ -810,6 +961,7 @@ def wait_ms_challenge_step03(
     step = "ms_hold_step_wait"
     mode_n = (mode or "sleep").strip().lower().replace("-", "_")
     t = max(2_000, min(form_step_timeout_ms, 60_000))
+    probe_v = max(400, min(8_000, locator_probe_timeout_ms))
 
     try:
         if mode_n == "until_press":
@@ -819,11 +971,11 @@ def wait_ms_challenge_step03(
             press_visible = False
             root_kind: str | None = None
             while elapsed < cap:
-                found = _find_challenge_root(page)
+                found = _find_challenge_root(page, list_visible_timeout_ms=probe_v)
                 if found is not None:
                     root, root_kind = found
                     if _locator_list_any_visible(
-                        _press_hold_button_locators(root), timeout_ms=t
+                        _press_hold_button_locators(root), timeout_ms=probe_v
                     ):
                         press_visible = True
                         break

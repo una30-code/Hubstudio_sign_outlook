@@ -284,12 +284,51 @@ DEFAULT_PHASE2_HOLD_REFIND_ROOT_BEFORE_PRESS = True
 # 填表成功后、检测人机页前：先固定短睡（毫秒），再给下方轮询上限（毫秒）等人机文案出现
 DEFAULT_PHASE2_HOLD_PREP_SHORT_SLEEP_MS = 4_000
 DEFAULT_PHASE2_HOLD_PREP_POLL_MS = 20_000
+# 进入人机流程后、点小人文前：在顶层视口做一次轻点（模拟「先点页面」）；0/false/off 关闭
+DEFAULT_PHASE2_HOLD_WARMUP_VIEWPORT_CLICK = True
+DEFAULT_PHASE2_HOLD_WARMUP_SETTLE_MS = 280
+# 人机步：每个候选 locator 的「等可见」上限（毫秒），点击仍用 PHASE2_FORM_TIMEOUT_MS
+DEFAULT_PHASE2_HOLD_LOCATOR_PROBE_MS = 2_000
+
+
+def _phase2_behavior_simulation_from_env(raw: str | None) -> str:
+    """PHASE2_BEHAVIOR_SIMULATION：未设置或空为 off；light / medium（或 1 / 2）。"""
+    if raw is None or not str(raw).strip():
+        return "off"
+    v = str(raw).strip().lower()
+    if v in ("off", "0", "false", "no"):
+        return "off"
+    if v in ("light", "1"):
+        return "light"
+    if v in ("medium", "2"):
+        return "medium"
+    return "off"
+
+
+def _phase2_behavior_jitter_defaults(mode: str) -> tuple[int, int]:
+    if mode == "light":
+        return 50, 200
+    if mode == "medium":
+        return 200, 800
+    return 0, 0
 
 
 def _env_truthy(raw: str | None) -> bool:
     if raw is None or not str(raw).strip():
         return False
     return str(raw).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _phase2_hold_warmup_viewport_click_from_env(raw: str | None) -> bool:
+    """PHASE2_HOLD_WARMUP_VIEWPORT_CLICK：未设置时默认开启；0/false/no/off 关闭。"""
+    if raw is None or not str(raw).strip():
+        return DEFAULT_PHASE2_HOLD_WARMUP_VIEWPORT_CLICK
+    s = str(raw).strip().lower()
+    if s in ("0", "false", "no", "off"):
+        return False
+    if s in ("1", "true", "yes", "on"):
+        return True
+    return True
 
 
 def _phase2_try_hold_challenge_from_env(raw: str | None) -> bool:
@@ -367,6 +406,12 @@ class Phase2Settings:
     phase2_hold_refind_root_before_press: bool
     phase2_hold_prep_short_sleep_ms: int
     phase2_hold_prep_poll_ms: int
+    phase2_hold_warmup_viewport_click: bool
+    phase2_hold_warmup_settle_ms: int
+    phase2_hold_locator_probe_ms: int
+    phase2_behavior_simulation: str
+    phase2_behavior_jitter_min_ms: int
+    phase2_behavior_jitter_max_ms: int
     screenshots_dir: Path
     log_dir: Path
     cdp_url_override: str | None
@@ -442,6 +487,50 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
             DEFAULT_PHASE2_HOLD_PREP_POLL_MS,
         ),
     )
+    phase2_hold_warmup_viewport_click = _phase2_hold_warmup_viewport_click_from_env(
+        environ.get("PHASE2_HOLD_WARMUP_VIEWPORT_CLICK")
+    )
+    phase2_hold_warmup_settle_ms = max(
+        0,
+        min(
+            2_000,
+            _int_with_default(
+                environ.get("PHASE2_HOLD_WARMUP_SETTLE_MS"),
+                DEFAULT_PHASE2_HOLD_WARMUP_SETTLE_MS,
+            ),
+        ),
+    )
+    phase2_hold_locator_probe_ms = max(
+        400,
+        min(
+            8_000,
+            _int_with_default(
+                environ.get("PHASE2_HOLD_LOCATOR_PROBE_MS"),
+                DEFAULT_PHASE2_HOLD_LOCATOR_PROBE_MS,
+            ),
+        ),
+    )
+
+    phase2_behavior_simulation = _phase2_behavior_simulation_from_env(
+        environ.get("PHASE2_BEHAVIOR_SIMULATION")
+    )
+    _bj_min_def, _bj_max_def = _phase2_behavior_jitter_defaults(phase2_behavior_simulation)
+    _bj_min_raw = (environ.get("PHASE2_BEHAVIOR_JITTER_MIN_MS") or "").strip()
+    _bj_max_raw = (environ.get("PHASE2_BEHAVIOR_JITTER_MAX_MS") or "").strip()
+    if _bj_min_raw:
+        phase2_behavior_jitter_min_ms = max(
+            0, _int_with_default(_bj_min_raw, _bj_min_def)
+        )
+    else:
+        phase2_behavior_jitter_min_ms = _bj_min_def
+    if _bj_max_raw:
+        phase2_behavior_jitter_max_ms = max(
+            0, _int_with_default(_bj_max_raw, _bj_max_def)
+        )
+    else:
+        phase2_behavior_jitter_max_ms = _bj_max_def
+    if phase2_behavior_jitter_max_ms < phase2_behavior_jitter_min_ms:
+        phase2_behavior_jitter_max_ms = phase2_behavior_jitter_min_ms
 
     cdp_override = environ.get("HUBSTUDIO_CDP_URL", "").strip() or None
     api_base = environ.get("HUBSTUDIO_API_BASE", "").strip()
@@ -471,6 +560,12 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
             phase2_hold_refind_root_before_press=phase2_hold_refind_root_before_press,
             phase2_hold_prep_short_sleep_ms=phase2_hold_prep_short_sleep_ms,
             phase2_hold_prep_poll_ms=phase2_hold_prep_poll_ms,
+            phase2_hold_warmup_viewport_click=phase2_hold_warmup_viewport_click,
+            phase2_hold_warmup_settle_ms=phase2_hold_warmup_settle_ms,
+            phase2_hold_locator_probe_ms=phase2_hold_locator_probe_ms,
+            phase2_behavior_simulation=phase2_behavior_simulation,
+            phase2_behavior_jitter_min_ms=phase2_behavior_jitter_min_ms,
+            phase2_behavior_jitter_max_ms=phase2_behavior_jitter_max_ms,
             screenshots_dir=screenshots_dir,
             log_dir=log_dir,
             cdp_url_override=cdp_override,
@@ -502,6 +597,12 @@ def load_phase2_settings(*, environ: Mapping[str, str] | None = None) -> Phase2S
         phase2_hold_refind_root_before_press=phase2_hold_refind_root_before_press,
         phase2_hold_prep_short_sleep_ms=phase2_hold_prep_short_sleep_ms,
         phase2_hold_prep_poll_ms=phase2_hold_prep_poll_ms,
+        phase2_hold_warmup_viewport_click=phase2_hold_warmup_viewport_click,
+        phase2_hold_warmup_settle_ms=phase2_hold_warmup_settle_ms,
+        phase2_hold_locator_probe_ms=phase2_hold_locator_probe_ms,
+        phase2_behavior_simulation=phase2_behavior_simulation,
+        phase2_behavior_jitter_min_ms=phase2_behavior_jitter_min_ms,
+        phase2_behavior_jitter_max_ms=phase2_behavior_jitter_max_ms,
         screenshots_dir=screenshots_dir,
         log_dir=log_dir,
         cdp_url_override=None,

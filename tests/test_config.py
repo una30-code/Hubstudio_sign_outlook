@@ -6,6 +6,7 @@ from src.config import (
     DEFAULT_PAGE_LOAD_TIMEOUT_MS,
     DEFAULT_PHASE2_ACTION_DELAY_MS,
     DEFAULT_PHASE2_FORM_TIMEOUT_MS,
+    DEFAULT_PHASE2_HOLD_LOCATOR_PROBE_MS,
     load_phase2_settings,
     load_settings,
 )
@@ -58,12 +59,44 @@ def test_load_phase2_settings_defaults_and_overrides() -> None:
     assert s.phase2_hold_prep_short_sleep_ms == 4_000
     assert s.phase2_hold_prep_poll_ms == 20_000
     assert s.phase2_hold_refind_root_before_press is True
+    assert s.phase2_hold_warmup_viewport_click is True
+    assert s.phase2_hold_warmup_settle_ms == 280
+    assert s.phase2_hold_locator_probe_ms == DEFAULT_PHASE2_HOLD_LOCATOR_PROBE_MS
 
     s_hold_off = load_phase2_settings(environ={**base, "PHASE2_TRY_HOLD_CHALLENGE": "0"})
     assert s_hold_off.phase2_try_hold_challenge is False
 
     s_ref_off = load_phase2_settings(environ={**base, "MS_HOLD_REFIND_ROOT_BEFORE_PRESS": "0"})
     assert s_ref_off.phase2_hold_refind_root_before_press is False
+
+    s_warm_off = load_phase2_settings(
+        environ={**base, "PHASE2_HOLD_WARMUP_VIEWPORT_CLICK": "0"}
+    )
+    assert s_warm_off.phase2_hold_warmup_viewport_click is False
+
+    assert s.phase2_behavior_simulation == "off"
+    assert s.phase2_behavior_jitter_min_ms == 0
+    assert s.phase2_behavior_jitter_max_ms == 0
+
+    s_bh = load_phase2_settings(environ={**base, "PHASE2_BEHAVIOR_SIMULATION": "light"})
+    assert s_bh.phase2_behavior_simulation == "light"
+    assert s_bh.phase2_behavior_jitter_min_ms == 50
+    assert s_bh.phase2_behavior_jitter_max_ms == 200
+
+    s_bm = load_phase2_settings(environ={**base, "PHASE2_BEHAVIOR_SIMULATION": "medium"})
+    assert s_bm.phase2_behavior_jitter_min_ms == 200
+    assert s_bm.phase2_behavior_jitter_max_ms == 800
+
+    s_bj = load_phase2_settings(
+        environ={
+            **base,
+            "PHASE2_BEHAVIOR_SIMULATION": "light",
+            "PHASE2_BEHAVIOR_JITTER_MIN_MS": "10",
+            "PHASE2_BEHAVIOR_JITTER_MAX_MS": "20",
+        }
+    )
+    assert s_bj.phase2_behavior_jitter_min_ms == 10
+    assert s_bj.phase2_behavior_jitter_max_ms == 20
 
     s2 = load_phase2_settings(
         environ={

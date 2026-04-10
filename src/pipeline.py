@@ -1,7 +1,10 @@
 """Phase-0 编排占位：Hubstudio 环境创建。"""
 
+import logging
 from datetime import datetime
 from typing import Any
+
+_logger_phase2 = logging.getLogger(__name__)
 
 if __package__ in {None, ""}:
     from archive_store import append_archive_record, read_latest_phase1_user_profile
@@ -271,6 +274,12 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
                         None,
                     )
 
+                _logger_phase2.info(
+                    "phase2 behavior_profile simulation=%s jitter_ms=[%s,%s]",
+                    p2.phase2_behavior_simulation,
+                    p2.phase2_behavior_jitter_min_ms,
+                    p2.phase2_behavior_jitter_max_ms,
+                )
                 apply_res = apply_outlook_signup_profile(
                     page=page,
                     profile=profile,
@@ -279,6 +288,9 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
                     action_delay_ms=p2.phase2_action_delay_ms,
                     chrome_password_prompt=p2.chrome_password_prompt,
                     screenshots_dir=screenshots_dir,
+                    behavior_simulation=p2.phase2_behavior_simulation,
+                    behavior_jitter_min_ms=p2.phase2_behavior_jitter_min_ms,
+                    behavior_jitter_max_ms=p2.phase2_behavior_jitter_max_ms,
                 )
                 if not apply_res["success"]:
                     return apply_res, None
@@ -295,6 +307,9 @@ def run_phase2_outlook_signup_page() -> tuple[StepResult, Any | None]:
                     refind_challenge_root_before_hold=p2.phase2_hold_refind_root_before_press,
                     prep_short_sleep_ms=p2.phase2_hold_prep_short_sleep_ms,
                     prep_poll_ms=p2.phase2_hold_prep_poll_ms,
+                    warmup_viewport_click=p2.phase2_hold_warmup_viewport_click,
+                    warmup_settle_ms=p2.phase2_hold_warmup_settle_ms,
+                    locator_probe_timeout_ms=p2.phase2_hold_locator_probe_ms,
                 )
                 if not hold_res["success"]:
                     return hold_res, None

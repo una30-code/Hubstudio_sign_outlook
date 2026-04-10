@@ -169,6 +169,9 @@ def test_try_ms_accessible_hold_challenge_clicks_press_and_hold(
     assert r["data"].get("hold_press_ms") == 2_000
     assert r["data"].get("accessibility_used_force") is False
     assert r["data"].get("hold_used_force") is False
+    assert r["data"].get("warmup_viewport_click") is True
+    assert "timing_ms" in r["data"]
+    assert r["data"]["timing_ms"].get("prep_ms") is not None
 
 
 def test_click_accessibility_only_on_fixture(playwright_chromium_page, tmp_path: Path) -> None:

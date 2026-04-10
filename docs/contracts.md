@@ -199,6 +199,9 @@ phase-0 环境创建成功时，`data` 至少含：`container_code`、`environme
 | `PAGE_LOAD_TIMEOUT_MS` | 否 | `page.goto` 超时（毫秒），默认 100000 |
 | `PHASE2_FORM_TIMEOUT_MS` | 否 | 已打开页后单步填表/点击等待（毫秒），默认 15000 |
 | `PHASE2_ACTION_DELAY_MS` | 否 | 主步骤间间隔（毫秒），默认 1000；`0` 关闭 |
+| `PHASE2_BEHAVIOR_SIMULATION` | 否 | `off`（默认）/ `light` / `medium`（或 `1` / `2`）；非 `off` 时在每次主步骤 pause **之后**再叠加随机抖动 |
+| `PHASE2_BEHAVIOR_JITTER_MIN_MS` | 否 | 抖动下限（毫秒）；未设时 `light`→50、`medium`→200、`off`→0 |
+| `PHASE2_BEHAVIOR_JITTER_MAX_MS` | 否 | 抖动上限（毫秒）；未设时 `light`→200、`medium`→800、`off`→0；若小于 min 则抬到 min |
 | `PHASE2_CHROME_PASSWORD_PROMPT` | 否 | `skip` / `save` / `dismiss`；浏览器外壳密码条可能不在 DOM |
 | `SCREENSHOTS_DIR` | 否 | 默认 `screenshots` |
 | `LOG_DIR` | 否 | 含 `archive/`；phase-2 日志如 `logs/phase2.log` |
@@ -212,10 +215,15 @@ phase-0 环境创建成功时，`data` 至少含：`container_code`、`environme
 | `PHASE2_HOLD_PRESS_DURATION_MS` | 4500 | 长按持续时间（毫秒） |
 | `PHASE2_HOLD_PREP_SHORT_SLEEP_MS` | 4000 | 填表结束后、检测人机页前**固定短睡**（毫秒）；`0` 关闭 |
 | `PHASE2_HOLD_PREP_POLL_MS` | 20000 | 短睡后**轮询**等待人机文案出现的上限（毫秒，不含短睡）；`0` 表示不轮询、仅短睡后检测一次 |
+| `PHASE2_HOLD_WARMUP_VIEWPORT_CLICK` | **开**（未设或空） | 进入人机子流程且处理完密码条后，在**顶层视口**先 `mouse.click` 一次再点小人文；`0`/`false`/`no`/`off` 关闭 |
+| `PHASE2_HOLD_WARMUP_SETTLE_MS` | 280 | 视口轻点后的短等待（毫秒），`0`～`2000` |
+| `PHASE2_HOLD_LOCATOR_PROBE_MS` | 2000 | 各候选 locator **`wait_for(visible)`** 上限（毫秒，内部钳制约 `400`～`8000`）；**点击**仍用 `PHASE2_FORM_TIMEOUT_MS` |
 
 实现模块：`src/ms_hold_challenge.py` → `try_ms_accessible_hold_challenge`。
 
 **`challenge_root`（成功/失败 `data`）**：`main` | `iframe` | `iframe_hsprotect`（URL 含 `hsprotect` 的 frame 优先解析）。长按失败时另含 `frame_count`、`hsprotect_frame_count`、`hsprotect_url_bases`（无 query 字符串，仅路径前缀摘要）。
+
+**`timing_ms`（`try_ms_accessible_hold_challenge`）**：`prep_ms`、`resolve_root_ms`、`password_dismiss_ms`、`warmup_ms`、`accessibility_ms`、`wait_after_accessible_ms`、`refind_ms`、`hold_ms`；日志含对应 `[MS_HOLD] stage=timing segment=…`。
 
 ### 5.4 phase-2 执行顺序（失败即停）
 

@@ -14,7 +14,7 @@
 
 ### 1.2 成功判据
 
-1. 配置读取成功，必填项校验通过。  
+1. 配置读取成功，必填项校验通过。
 2. Hubstudio API 可连通且创建接口返回成功。  
 3. 得到可用于后续阶段的环境标识（`containerCode` 或等价字段）。  
 4. `success=True`，关键步骤有日志。
@@ -82,7 +82,7 @@
 
 ### 6.3 实现要点（页面与脚本行为）
 
-- **`apply_signup_profile`**（行为摘要，非选择器契约）：邮箱 → 下一步 → 密码 → 下一步；`PHASE2_CHROME_PASSWORD_PROMPT` 控制是否处理 Chrome 系密码条——条常在外壳层，**DOM 可能不可达**；`save` 模式下点击失败时可回退 `Enter`。人物信息：**先**生日 **后**姓名；若当前屏无姓名则 **Next** 后再填；填生日前 **`Escape`** 收起国家/地区浮层。当前页面对齐 **Fluent** 时，可用英文无障碍名（Birth month/day、Birth year 等）与 **`aria-controls` → `fluent-listbox`**；`get_by_test_id("primaryButton")` 为提交按钮候选。单步等待由 `PHASE2_FORM_TIMEOUT_MS`；主步骤间可插入 `PHASE2_ACTION_DELAY_MS`。  
+- **`apply_signup_profile`**（行为摘要，非选择器契约）：邮箱 → 下一步 → 密码 → 下一步；`PHASE2_CHROME_PASSWORD_PROMPT` 控制是否处理 Chrome 系密码条——条常在外壳层，**DOM 可能不可达**；`save` 模式下点击失败时可回退 `Enter`。人物信息：**先**生日 **后**姓名；若当前屏无姓名则 **Next** 后再填；填生日前 **`Escape`** 收起国家/地区浮层。当前页面对齐 **Fluent** 时，可用英文无障碍名（Birth month/day、Birth year 等）与 **`aria-controls` → `fluent-listbox`**；`get_by_test_id("primaryButton")` 为提交按钮候选。单步等待由 `PHASE2_FORM_TIMEOUT_MS`；主步骤间可插入 `PHASE2_ACTION_DELAY_MS`。**行为模拟（P0+P1）**：`PHASE2_BEHAVIOR_SIMULATION` 为 `light` / `medium` 时，在每个主步骤 pause 之后**再**叠加 `[min,max]` 毫秒内均匀随机延迟（默认区间见 `docs/contracts.md` §5.2）；可与 `PHASE2_ACTION_DELAY_MS` **叠用**。流水线在填表前打 **`phase2 behavior_profile`**；成功 `data` 含 **`behavior_profile`**。  
 - **`verify_page`**：候选元素等待上限与 `PAGE_LOAD_TIMEOUT_MS` 成比例（约 6s 量级），减轻首屏校验耗时。  
 - **phase-2 成功留档**：见 `docs/contracts.md` §2.3；在 `apply_signup_profile` 及可选 `ms_hold_challenge` 成功后追加 JSONL。  
 - **选择器维护**：微软改版时**最小差异**修改 `verify_page.py` / `apply_signup_profile.py` / `ms_hold_challenge.py`，并同步更新本段或契约叙述。
@@ -99,6 +99,10 @@
 
 **挑战根节点选择（路线 A，V1）**：在 **iframe.hsprotect.net** 等 URL 的 frame 与「含人机正文」的 frame 中优先（子 frame 逆序）；主文档常残留说明文案故**排在后**；若已锁定 `iframe` / `iframe_hsprotect`，长按前 **refind 不会降回 main**（避免误把操作范围切回顶层）。**Press and hold** 除 `<button>` 外兼容 **`<p>` 文案** 与 `Press & hold` 变体；无障碍入口兼容 **`a[role="button"]`**。prep 轮询用「任一处出现人机文案或 hsprotect frame」判定。日志关键行带 **`[MS_HOLD] stage=…`** 前缀。失败时 `data` 含 **`hsprotect_url_bases`**（去 query 摘要）便于对照。外壳层「保存密码」仍可能不在 DOM：建议在 `.env` 设 **`PHASE2_CHROME_PASSWORD_PROMPT=dismiss`** 并配合 HubStudio 关闭提示。
 
+**视口热身点击**：在关完 DOM 可达的密码条之后、点小人文之前，默认在**顶层 Page 视口**做一次 `mouse.click`（坐标偏左下，减轻误点右上密码条），由 **`PHASE2_HOLD_WARMUP_VIEWPORT_CLICK`** / **`PHASE2_HOLD_WARMUP_SETTLE_MS`** 控制（见 `docs/contracts.md` §5.3）。
+
+**Locator 顺序与探测超时（A+B）**：无障碍优先 **`a`/`button` 精确匹配 `Accessible challenge`**；长按优先 **`Press & Hold Human Challenge` / `Press and hold` 的 role+name 与 aria-label`**。各候选 **`wait_for(visible)`** 上限由 **`PHASE2_HOLD_LOCATOR_PROBE_MS`** 控制，点击超时仍为 **`PHASE2_FORM_TIMEOUT_MS`**。返回与日志中带 **`timing_ms`** / `[MS_HOLD] stage=timing`。
+
 ### 6.6 浏览器会话与「关浏览器」的影响（项目结论，单点说明）
 
 以下结论来自实际验证，**其它文档不重复展开**，仅作交叉引用。
@@ -114,7 +118,8 @@
 
 | 日期 | 摘要 |
 | ---- | ---- |
-| 2026-04-09 | §6.5：短睡+轮询 prep；路线 A（hsprotect/iframe 优先、refind 不降 main、`<p>` Press and hold）；`[MS_HOLD]` 日志与失败 frame 摘要；跳过截图与 step 约定；密码条建议 dismiss |
+| 2026-04-09 | §6.3：行为模拟 P0+P1（`PHASE2_BEHAVIOR_*`、留档 `behavior_profile`） |
+| 2026-04-09 | §6.5：locator 顺序+A+B+D（`PHASE2_HOLD_LOCATOR_PROBE_MS`、`timing_ms`）；视口热身；路线 A；密码条建议 dismiss |
 | 2026-04-08 | §6.5～§6.6：填表后人机默认启用；关浏览器与会话丢失结论（单点说明）；与 pipeline 顺序对齐 |
 | 2026-04-08 | **文档收束（第二部分）**：表格与枚举迁至 `docs/contracts.md`；`design.md` 重排为 §1～§7，仅保留目标、边界、模块协作与 phase-2 实现要点 |
 | 2026-04-07 | §10.9：可选 `ms_hold_challenge`；`PHASE2_TRY_HOLD_CHALLENGE` 等（历史：旧 §10） |

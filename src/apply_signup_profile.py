@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import re
 import time
 from pathlib import Path
@@ -85,6 +86,37 @@ def _step_pause(page: Any, delay_ms: int) -> None:
         page.wait_for_timeout(delay_ms)
     except Exception:
         pass
+
+
+def _step_pause_with_behavior(
+    page: Any,
+    action_delay_ms: int,
+    *,
+    behavior_simulation: str,
+    behavior_jitter_min_ms: int,
+    behavior_jitter_max_ms: int,
+    log: logging.Logger,
+) -> None:
+    """先执行固定 action_delay，再在非 off 时叠加 [min,max] 内均匀随机毫秒（P1 行为模拟）。"""
+    _step_pause(page, action_delay_ms)
+    if behavior_simulation == "off":
+        return
+    lo = max(0, behavior_jitter_min_ms)
+    hi = max(lo, behavior_jitter_max_ms)
+    if hi <= 0:
+        return
+    extra = random.randint(lo, hi)
+    try:
+        page.wait_for_timeout(extra)
+    except Exception:
+        pass
+    log.debug(
+        "apply_signup_profile: behavior jitter extra_ms=%s range=[%s,%s] mode=%s",
+        extra,
+        lo,
+        hi,
+        behavior_simulation,
+    )
 
 
 def _try_chrome_password_prompt_keyboard_primary(page: Any, log: logging.Logger) -> None:
@@ -902,17 +934,28 @@ def apply_outlook_signup_profile(
     action_delay_ms: int = 0,
     chrome_password_prompt: str = "skip",
     screenshots_dir: Path,
+    behavior_simulation: str = "off",
+    behavior_jitter_min_ms: int = 0,
+    behavior_jitter_max_ms: int = 0,
 ) -> StepResult:
     """
     已通过页面校验后：填邮箱 → 下一步 → 密码 → 提交 → （可选）Chrome 密码提示 →
     **先填生日**（与「Add some info」类页面一致）→ 再填姓名（若当前屏无姓名则先点 Next 再找）。
     使用较短 form_step_timeout_ms 控制单步等待，与整页 PAGE_LOAD_TIMEOUT_MS 解耦。
     action_delay_ms 为各主步骤之间的额外 pause；chrome_password_prompt 为 save/dismiss/skip。
+    behavior_simulation：off / light / medium，在每次主步骤 pause 后叠加随机抖动（见 PHASE2_BEHAVIOR_*）。
     """
 
     log = logging.getLogger(__name__)
     step = "apply_signup_profile"
     t = max(2_000, min(form_step_timeout_ms, 120_000))
+    log.info(
+        "%s: behavior_profile simulation=%s jitter_ms=[%s,%s]",
+        step,
+        behavior_simulation,
+        behavior_jitter_min_ms,
+        behavior_jitter_max_ms,
+    )
 
     account = profile.get("account", "").strip()
     password = profile.get("password", "")
@@ -952,12 +995,26 @@ def apply_outlook_signup_profile(
                 screenshot_path=shot,
             )
         steps_done_list.append("email_filled")
-        _step_pause(page, action_delay_ms)
+        _step_pause_with_behavior(
+            page,
+            action_delay_ms,
+            behavior_simulation=behavior_simulation,
+            behavior_jitter_min_ms=behavior_jitter_min_ms,
+            behavior_jitter_max_ms=behavior_jitter_max_ms,
+            log=log,
+        )
 
         if _click_first_match(page, _primary_action_locators(page), timeout_ms=t):
             steps_done_list.append("next_after_email")
             _nav_settle(page, t)
-        _step_pause(page, action_delay_ms)
+        _step_pause_with_behavior(
+            page,
+            action_delay_ms,
+            behavior_simulation=behavior_simulation,
+            behavior_jitter_min_ms=behavior_jitter_min_ms,
+            behavior_jitter_max_ms=behavior_jitter_max_ms,
+            log=log,
+        )
 
         pwd_locators = [
             page.locator("#PasswordInput"),
@@ -975,17 +1032,38 @@ def apply_outlook_signup_profile(
                 screenshot_path=shot,
             )
         steps_done_list.append("password_filled")
-        _step_pause(page, action_delay_ms)
+        _step_pause_with_behavior(
+            page,
+            action_delay_ms,
+            behavior_simulation=behavior_simulation,
+            behavior_jitter_min_ms=behavior_jitter_min_ms,
+            behavior_jitter_max_ms=behavior_jitter_max_ms,
+            log=log,
+        )
 
         if _click_first_match(page, _primary_action_locators(page), timeout_ms=t):
             steps_done_list.append("next_after_password")
             _nav_settle(page, t)
         # 间隔后尝试命中页面内的密码保存按钮（若为浏览器外壳 UI 则可能不在 DOM）
-        _step_pause(page, action_delay_ms)
+        _step_pause_with_behavior(
+            page,
+            action_delay_ms,
+            behavior_simulation=behavior_simulation,
+            behavior_jitter_min_ms=behavior_jitter_min_ms,
+            behavior_jitter_max_ms=behavior_jitter_max_ms,
+            log=log,
+        )
         _try_chrome_password_prompt(
             page, chrome_password_prompt, timeout_ms=t, log=log
         )
-        _step_pause(page, action_delay_ms)
+        _step_pause_with_behavior(
+            page,
+            action_delay_ms,
+            behavior_simulation=behavior_simulation,
+            behavior_jitter_min_ms=behavior_jitter_min_ms,
+            behavior_jitter_max_ms=behavior_jitter_max_ms,
+            log=log,
+        )
 
         if not first_name or not last_name:
             shot = _try_screenshot(page, screenshots_dir, step)
@@ -1028,7 +1106,14 @@ def apply_outlook_signup_profile(
                 screenshot_path=shot,
             )
         steps_done_list.append("birth_filled")
-        _step_pause(page, action_delay_ms)
+        _step_pause_with_behavior(
+            page,
+            action_delay_ms,
+            behavior_simulation=behavior_simulation,
+            behavior_jitter_min_ms=behavior_jitter_min_ms,
+            behavior_jitter_max_ms=behavior_jitter_max_ms,
+            log=log,
+        )
 
         fn_locs = [
             page.locator("#FirstName"),
@@ -1044,29 +1129,64 @@ def apply_outlook_signup_profile(
         fn_ok = _fill_first_visible(page, fn_locs, first_name, timeout_ms=t)
         if fn_ok:
             steps_done_list.append("first_name_filled")
-        _step_pause(page, action_delay_ms)
+        _step_pause_with_behavior(
+            page,
+            action_delay_ms,
+            behavior_simulation=behavior_simulation,
+            behavior_jitter_min_ms=behavior_jitter_min_ms,
+            behavior_jitter_max_ms=behavior_jitter_max_ms,
+            log=log,
+        )
 
         ln_ok = _fill_first_visible(page, ln_locs, last_name, timeout_ms=t)
         if ln_ok:
             steps_done_list.append("last_name_filled")
-        _step_pause(page, action_delay_ms)
+        _step_pause_with_behavior(
+            page,
+            action_delay_ms,
+            behavior_simulation=behavior_simulation,
+            behavior_jitter_min_ms=behavior_jitter_min_ms,
+            behavior_jitter_max_ms=behavior_jitter_max_ms,
+            log=log,
+        )
 
         # 当前屏可能仅有国家/生日（「Add some info」）；姓名在下一屏
         if not fn_ok or not ln_ok:
             if _click_first_match(page, _primary_action_locators(page), timeout_ms=t):
                 steps_done_list.append("next_after_birth_only")
                 _nav_settle(page, t)
-            _step_pause(page, action_delay_ms)
+            _step_pause_with_behavior(
+            page,
+            action_delay_ms,
+            behavior_simulation=behavior_simulation,
+            behavior_jitter_min_ms=behavior_jitter_min_ms,
+            behavior_jitter_max_ms=behavior_jitter_max_ms,
+            log=log,
+        )
             if not fn_ok:
                 fn_ok = _fill_first_visible(page, fn_locs, first_name, timeout_ms=t)
                 if fn_ok:
                     steps_done_list.append("first_name_filled")
-            _step_pause(page, action_delay_ms)
+            _step_pause_with_behavior(
+            page,
+            action_delay_ms,
+            behavior_simulation=behavior_simulation,
+            behavior_jitter_min_ms=behavior_jitter_min_ms,
+            behavior_jitter_max_ms=behavior_jitter_max_ms,
+            log=log,
+        )
             if not ln_ok:
                 ln_ok = _fill_first_visible(page, ln_locs, last_name, timeout_ms=t)
                 if ln_ok:
                     steps_done_list.append("last_name_filled")
-            _step_pause(page, action_delay_ms)
+            _step_pause_with_behavior(
+            page,
+            action_delay_ms,
+            behavior_simulation=behavior_simulation,
+            behavior_jitter_min_ms=behavior_jitter_min_ms,
+            behavior_jitter_max_ms=behavior_jitter_max_ms,
+            log=log,
+        )
 
         if not fn_ok:
             shot = _try_screenshot(page, screenshots_dir, step)
@@ -1100,6 +1220,11 @@ def apply_outlook_signup_profile(
             data={
                 "steps_completed": steps_done_list,
                 "email_used": email,
+                "behavior_profile": {
+                    "simulation": behavior_simulation,
+                    "jitter_ms_min": behavior_jitter_min_ms,
+                    "jitter_ms_max": behavior_jitter_max_ms,
+                },
             },
             error=None,
             screenshot_path=None,
